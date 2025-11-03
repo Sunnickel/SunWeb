@@ -3,7 +3,7 @@
 //! This module is **internal**; users interact with the higher-level
 //! [`HTTPRequest`](crate::webserver::requests::HTTPRequest) and
 //! [`HTTPResponse`](crate::webserver::responses::HTTPResponse) types instead.
-pub(crate) mod header;
+pub mod header;
 use header::HTTPHeader;
 
 /// An HTTP/1.1 message (request or response) without any semantic
