@@ -21,7 +21,7 @@ capabilities.
 Add this to your `Cargo.toml`:
 
 ```toml 
-[dependencies] sunweb = "0.1.14"
+[dependencies] sunweb = "0.2.1"
 ``` 
 
 Or install from GitHub:
