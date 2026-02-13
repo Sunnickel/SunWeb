@@ -186,13 +186,18 @@ impl WebServer {
                                         i += 1;
                                         continue;
                                     }
+                                    ConnectionType::Close => {
+                                        break;
+                                    }
                                     _ => {
-                                        error!("Connection closed: {connection_type}");
+                                        error!("Connection error: {connection_type}");
                                         break;
                                     }
                                 },
-                                None => break,
-                            };
+                                None => {
+                                    continue
+                                }
+                            }
                         }
                     });
                 }

@@ -12,6 +12,7 @@ use crate::webserver::http_packet::header::headers::cookie::Cookie;
 use crate::webserver::route::HTTPMethod;
 use std::collections::HashMap;
 use std::str::FromStr;
+use log::info;
 
 /// A parsed HTTP/1.1 request.
 ///
@@ -55,12 +56,24 @@ impl HTTPRequest {
         let request_str = String::from_utf8(raw_request.to_vec())
             .map_err(|e| format!("Invalid UTF-8 in request: {}", e))?;
 
-        let mut lines = request_str.lines();
+        if request_str.trim().is_empty() {
+            return Err("Empty request".into());
+        }
 
-        let request_line = lines.next().ok_or("Empty request")?;
-        let parts: Vec<&str> = request_line.split_whitespace().collect();
-        if parts.len() != 3 {
-            return Err("Invalid request line format".to_string());
+        let mut lines = request_str.lines();
+        let request_line = lines.next().ok_or("Empty request");
+        let parts: Vec<&str>;
+
+        match request_line {
+            Ok(line) => {
+                parts = line.split_whitespace().collect();
+                if parts.len() != 3 {
+                    return Err("Invalid request line format".to_string());
+                }
+            }
+            Err(_) => {
+                return Err("Invalid request line format".to_string());
+            }
         }
 
         let method = HTTPMethod::from_str(parts[0])
