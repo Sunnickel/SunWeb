@@ -1,0 +1,10 @@
+[package]
+name = "example_app"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+sunweb = {path = "../sunweb", version = "0.3.0"}
+tokio = "1.50.0"
+log = "0.4.29"

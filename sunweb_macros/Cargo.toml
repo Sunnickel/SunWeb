@@ -1,0 +1,15 @@
+[package]
+name = "sunweb_macros"
+edition.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+inventory.workspace = true
+
+sunweb_core = { path = "../sunweb_core" }

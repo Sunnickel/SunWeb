@@ -1,0 +1,20 @@
+[package]
+name = "sunweb"
+version = "0.3.0"
+authors = ["Sunnickel"]
+categories = ["web-programming::http-server", "web-programming"]
+description = "A small lightweight rust webframework."
+homepage = "https://github.com/Sunnickel/SunWeb"
+repository = "https://github.com/Sunnickel/SunWeb"
+readme = "../README.md"
+license = "MIT"
+keywords = ["web", "http", "server"]
+edition.workspace = true
+
+[dependencies]
+
+sunweb_core = { path = "../sunweb_core", version = "0.1.0" }
+sunweb_macros = { path = "../sunweb_macros", version = "0.1.0" }
+inventory.workspace = true
+[dev-dependencies]
+tempfile = "3.23.0"
