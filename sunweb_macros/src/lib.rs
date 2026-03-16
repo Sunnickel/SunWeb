@@ -1,8 +1,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse::{Parse, ParseStream},
-    parse_macro_input, DeriveInput, ItemFn, LitInt, LitStr, Token,
+    parse::{Parse, ParseStream}, parse_macro_input, DeriveInput, ItemFn, LitInt,
+    LitStr,
+    Token,
 };
 
 struct StaticArgs {
@@ -12,7 +13,11 @@ struct StaticArgs {
 }
 impl Parse for StaticArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(Self { path: input.parse()?, _c1: input.parse()?, folder: input.parse()? })
+        Ok(Self {
+            path: input.parse()?,
+            _c1: input.parse()?,
+            folder: input.parse()?,
+        })
     }
 }
 
@@ -21,7 +26,9 @@ struct ErrorArgs {
 }
 impl Parse for ErrorArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(Self { status_code: input.parse()? })
+        Ok(Self {
+            status_code: input.parse()?,
+        })
     }
 }
 
@@ -32,7 +39,11 @@ struct ProxyArgs {
 }
 impl Parse for ProxyArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(Self { path: input.parse()?, _c1: input.parse()?, external: input.parse()? })
+        Ok(Self {
+            path: input.parse()?,
+            _c1: input.parse()?,
+            external: input.parse()?,
+        })
     }
 }
 
@@ -44,7 +55,9 @@ impl Parse for MiddlewareArgs {
         if input.is_empty() {
             Ok(Self { route: None })
         } else {
-            Ok(Self { route: Some(input.parse()?) })
+            Ok(Self {
+                route: Some(input.parse()?),
+            })
         }
     }
 }
@@ -91,6 +104,7 @@ pub fn static_files(attr: TokenStream, item: TokenStream) -> TokenStream {
     let StaticArgs { path, folder, .. } = parse_macro_input!(attr as StaticArgs);
     let item: proc_macro2::TokenStream = item.into();
     TokenStream::from(quote! {
+        #[allow(dead_code)]
         #item
         sunweb::inventory::submit! {
             sunweb::RouteRegistration::Static { path: #path, folder: #folder }
@@ -112,12 +126,12 @@ pub fn error_page(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let handler = if func.sig.asyncness.is_some() {
         quote! { |req| ::std::boxed::Box::pin(async {
-        ::std::convert::Into::<sunweb::Response>::into(#fn_name(req).await)
-    })}
+            ::std::convert::Into::<sunweb::Response>::into(#fn_name(req).await)
+        })}
     } else {
         quote! { |req| ::std::boxed::Box::pin(async {
-        ::std::convert::Into::<sunweb::Response>::into(#fn_name(req))
-    })}
+            ::std::convert::Into::<sunweb::Response>::into(#fn_name(req))
+        })}
     };
 
     TokenStream::from(quote! {
@@ -188,6 +202,31 @@ pub fn derive_app(item: TokenStream) -> TokenStream {
                 };
 
                 sunweb::AppBuilder::new(host, port).run();
+            }
+
+            pub fn builder(addr: &str) -> AppBuilder{
+                let (host, port) = {
+                    let (host_str, port_str) = addr
+                        .rsplit_once(':')
+                        .unwrap_or_else(|| panic!("Invalid addr `{}` — expected host:port", addr));
+
+                    let port: u16 = port_str
+                        .parse()
+                        .unwrap_or_else(|_| panic!("Invalid port `{}`", port_str));
+
+                    let parts: Vec<u8> = host_str
+                        .split('.')
+                        .map(|seg| seg.parse::<u8>()
+                            .unwrap_or_else(|_| panic!("Invalid host segment `{}`", seg)))
+                        .collect();
+
+                    match parts.as_slice() {
+                        [a, b, c, d] => ([*a, *b, *c, *d], port),
+                        _ => panic!("Host `{}` must be IPv4", host_str),
+                    }
+                };
+
+                sunweb::AppBuilder::new(host, port)
             }
         }
     })
@@ -269,12 +308,12 @@ fn method_route(method: &str, attr: TokenStream, item: TokenStream) -> TokenStre
 
     let handler = if func.sig.asyncness.is_some() {
         quote! { |req| ::std::boxed::Box::pin(async {
-        ::std::convert::Into::<sunweb::Response>::into(#fn_name(req).await)
-    })}
+            ::std::convert::Into::<sunweb::Response>::into(#fn_name(req).await)
+        })}
     } else {
         quote! { |req| ::std::boxed::Box::pin(async {
-        ::std::convert::Into::<sunweb::Response>::into(#fn_name(req))
-    })}
+            ::std::convert::Into::<sunweb::Response>::into(#fn_name(req))
+        })}
     };
     TokenStream::from(quote! {
         #func

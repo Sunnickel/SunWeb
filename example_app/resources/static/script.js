@@ -1,4 +1,4 @@
-﻿const BASE = 'http://localhost:8080';
+﻿const BASE = 'https://localhost:8080';
 
 const tests = [
 	{ method: 'GET', path: '/hello',      expect: 200 },
@@ -6,7 +6,6 @@ const tests = [
 	{ method: 'GET', path: '/text',       expect: 200 },
 	{ method: 'GET', path: '/old-about',  expect: [301, 302, 307, 308], note: 'redirect' },
 	{ method: 'GET', path: '/no-content', expect: 204 },
-	{ method: 'GET', path: '/slow',       expect: 200, note: '~2s async' },
 	{ method: 'GET', path: '/api/test',   expect: 200, note: 'CORS middleware' },
 	{ method: 'GET', path: '/not-a-page', expect: 404, note: 'custom error page' },
 ];

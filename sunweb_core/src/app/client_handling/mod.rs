@@ -7,7 +7,7 @@ use crate::http_packet::header::connection::ConnectionType;
 use crate::http_packet::header::content_types::ContentType;
 use crate::http_packet::responses::status_code::StatusCode;
 use crate::http_packet::responses::Response;
-use crate::HTTPRequest;
+use crate::{HTTPMethod, HTTPRequest};
 use log::{error, warn};
 use rustls::ServerConfig;
 use std::str::FromStr;
@@ -19,7 +19,6 @@ use tokio::time::timeout;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 
-// Unified stream type that holds either plain TCP or TLS
 enum Stream {
     Plain(TcpStream),
     Tls(TlsStream<TcpStream>),
@@ -96,12 +95,25 @@ impl Client {
         };
 
         let connection = request.message.headers.connection.clone();
-        let modified_request = self.apply_request_middleware(request.clone());
-        let mut response = self.handle_routing(&modified_request).await;
-        response = self.apply_response_middleware(modified_request, response);
+        let modified_request = self.apply_request_middleware(request.clone()).await;
+
+        // For OPTIONS, skip routing and build a bare 204 for middleware to decorate
+        let mut response = if *modified_request.method() == HTTPMethod::OPTIONS {
+            Response::new(StatusCode::NoContent)
+        } else {
+            self.handle_routing(&modified_request).await
+        };
+
+        response = self.apply_response_middleware(modified_request.clone(), response).await;
+
+        if *modified_request.method() == HTTPMethod::OPTIONS
+            && response.get_header("Access-Control-Allow-Origin").is_none()
+        {
+            response = self.handle_routing(&modified_request).await;
+            response = self.apply_response_middleware(modified_request, response).await;
+        }
 
         self.send_response(response).await;
-
         Some(connection)
     }
 
@@ -113,7 +125,6 @@ impl Client {
             let mut chunk = [0u8; 1024];
             let headers_end_pos;
 
-            // Read until we have the full headers
             loop {
                 match self.stream.read(&mut chunk).await {
                     Ok(0) => return None,
@@ -131,7 +142,6 @@ impl Client {
                 }
             }
 
-            // Read body if Content-Length is set
             let content_length = parse_content_length(&buffer[..headers_end_pos]);
             while buffer.len() < headers_end_pos + content_length {
                 match self.stream.read(&mut chunk).await {
@@ -157,7 +167,7 @@ impl Client {
 
     // ── Middleware ────────────────────────────────────────────────────────────
 
-    fn apply_request_middleware(&self, mut request: HTTPRequest) -> HTTPRequest {
+    async fn apply_request_middleware(&self, mut request: HTTPRequest) -> HTTPRequest {
         for mw in self.middleware.iter() {
             if mw.route != "*" && !request.path().starts_with(&mw.route) {
                 continue;
@@ -169,7 +179,7 @@ impl Client {
         request
     }
 
-    fn apply_response_middleware(
+    async fn apply_response_middleware(
         &self,
         mut request: HTTPRequest,
         mut response: Response,
@@ -183,7 +193,10 @@ impl Client {
                 MiddlewareFn::HTTPResponseWithRoutes(f) => {
                     f(&mut request, &mut response, &self.routes)
                 }
-                MiddlewareFn::HTTPRequestResponse(f) => f(&mut request, &mut response), // new
+                MiddlewareFn::HTTPRequestResponse(f) => f(&mut request, &mut response),
+                MiddlewareFn::HTTPResponseAsyncWithRoutes(f) => {
+                    f(&mut request, &mut response, &self.routes).await
+                }
                 _ => {}
             }
         }
@@ -230,7 +243,6 @@ impl Client {
             .find(|r| r.route_type == RouteType::Proxy && path.starts_with(&r.path))
         {
             if let Some(external) = &route.proxy_url {
-                // Proxy is blocking — run in a thread so it doesn't stall the async runtime
                 let prefix = route.path.clone();
                 let external = external.clone();
                 let request_clone = request.clone();
@@ -269,8 +281,6 @@ fn parse_content_length(header_bytes: &[u8]) -> usize {
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(0)
 }
-
-// ── Free functions ────────────────────────────────────────────────────────────
 
 fn get_static_file_response(folder: &String, request: &HTTPRequest) -> Response {
     let (content, content_type) = get_static_file_content(request.path(), folder);

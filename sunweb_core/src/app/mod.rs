@@ -12,6 +12,8 @@ use crate::http_packet::requests::HTTPRequest;
 use crate::logger::Logger;
 use crate::Response;
 use log::{error, info};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -28,7 +30,8 @@ impl WebServer {
         let mut middlewares = Vec::new();
 
         let logging_middleware = Middleware::new_request_response(None, Logger::log_request);
-        let error_page_middleware = Middleware::new_response_with_routes(None, Self::error_page);
+        let error_page_middleware =
+            Middleware::new_response_async_with_routes(None, WebServer::error_page);
 
         middlewares.push(logging_middleware);
         middlewares.push(error_page_middleware);
@@ -85,17 +88,12 @@ impl WebServer {
 
                         loop {
                             match client.handle().await {
-                                Some(connection_type) => match connection_type {
-                                    ConnectionType::KeepAlive => {
-                                        continue;
-                                    }
-                                    ConnectionType::Close => break,
-                                    _ => {
-                                        error!("Connection error: {connection_type}");
-                                        break;
-                                    }
-                                },
-                                None => continue,
+                                Some(ConnectionType::KeepAlive) => continue,
+                                Some(ConnectionType::Close) | None => break,
+                                Some(other) => {
+                                    error!("Unexpected connection type: {other}");
+                                    break;
+                                }
                             }
                         }
                     });
@@ -105,24 +103,61 @@ impl WebServer {
         }
     }
 
-    pub(crate) fn error_page(request: &mut HTTPRequest, response: &mut Response, routes: &[Route]) {
-        let status = response.status_code;
+    pub(crate) fn error_page<'a>(
+        request: &'a mut HTTPRequest,
+        response: &'a mut Response,
+        routes: &'a [Route],
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            let status = response.status_code;
 
-        if status.as_u16() < 400 {
-            return;
-        }
-
-        if let Some(route) = routes
-            .iter()
-            .find(|r| r.route_type == RouteType::Error && r.status_code == status)
-        {
-            if let Some(handler) = &route.handler {
-                let error_resp = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(handler(request))
-                });
-                response.set_body_string(error_resp.body().unwrap().as_string().unwrap());
-                response.set_content_type(error_resp.content_type().clone());
+            if status.as_u16() < 400 {
+                return;
             }
-        }
+
+            if let Some(route) = routes
+                .iter()
+                .find(|r| r.route_type == RouteType::Error && r.status_code == status)
+            {
+                if let Some(handler) = &route.handler {
+                    let error_resp = handler(request).await;
+                    if let Some(body) = error_resp.body() {
+                        if let Some(s) = body.as_string() {
+                            response.set_body_string(s);
+                        }
+                    }
+                    response.set_content_type(error_resp.content_type().clone());
+                }
+            }
+        })
+    }
+
+    pub(crate) fn cors_check<'a>(
+        request: &'a mut HTTPRequest,
+        response: &'a mut Response,
+        routes: &'a [Route],
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            let status = response.status_code;
+
+            if status.as_u16() < 400 {
+                return;
+            }
+
+            if let Some(route) = routes
+                .iter()
+                .find(|r| r.route_type == RouteType::Error && r.status_code == status)
+            {
+                if let Some(handler) = &route.handler {
+                    let error_resp = handler(request).await;
+                    if let Some(body) = error_resp.body() {
+                        if let Some(s) = body.as_string() {
+                            response.set_body_string(s);
+                        }
+                    }
+                    response.set_content_type(error_resp.content_type().clone());
+                }
+            }
+        })
     }
 }

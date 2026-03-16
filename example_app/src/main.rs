@@ -6,8 +6,10 @@ use sunweb::*;
 struct MainApp;
 
 #[middleware]
-fn cors(res: &mut Response) {
-    res.set_cors_origin("http://localhost:80");
+fn cors(req: &mut HTTPRequest, res: &mut Response) {
+    if let Some(origin) = req.header("Origin") {
+        res.set_cors_origin(&origin);
+    }
     res.set_cors_methods(&["GET", "POST", "PUT", "DELETE", "OPTIONS"]);
     res.set_cors_headers(&["Content-Type", "Authorization"]);
     res.set_cors_max_age(3600);
@@ -54,12 +56,6 @@ fn no_content(_: &HTTPRequest) -> NoContentResponse {
     NoContentResponse
 }
 
-#[get("/slow")]
-async fn slow(_: &HTTPRequest) -> PlainTextResponse {
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    PlainTextResponse::ok("done")
-}
-
 #[get("/api/test")]
 fn api_test(_: &HTTPRequest) -> JsonResponse {
     JsonResponse::ok(r#"{"status": "ok"}"#)
@@ -79,5 +75,10 @@ fn server_error(_: &HTTPRequest) -> HtmlResponse {
 }
 
 fn main() {
-    MainApp::run("0.0.0.0:8080");
+    MainApp::builder("0.0.0.0:8080")
+        .cert(
+            "./example_app/resources/cert/key.pem",
+            "./example_app/resources/cert/cert.pem",
+        )
+        .run();
 }

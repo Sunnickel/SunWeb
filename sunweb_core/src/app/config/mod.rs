@@ -95,12 +95,15 @@ impl ServerConfig {
             panic!("Failed to parse certificates");
         }
 
-        let tls_config = RustlsConfig::builder()
+        let mut tls_config = RustlsConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs.unwrap(), key)
-            .map_err(|e| format!("Failed to create TLS config: {}", e));
+            .map_err(|e| format!("Failed to create TLS config: {}", e))
+            .unwrap();
 
-        self.tls_config = Some(Arc::new(tls_config.unwrap()));
+        tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+        self.tls_config = Some(Arc::new(tls_config));
         self.using_https = true;
 
         self
