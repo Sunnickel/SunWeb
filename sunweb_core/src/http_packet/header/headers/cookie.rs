@@ -1,4 +1,4 @@
-﻿use chrono::{Duration, Utc};
+use chrono::{Duration, Utc};
 /// Represents the SameSite attribute for cookies.
 ///
 /// This enum defines the SameSite policy that governs how cookies are sent with cross-site requests.
@@ -58,13 +58,13 @@ impl Cookie {
     /// let domain = Domain::new("example.com");
     /// let cookie = Cookie::new("session_id", "abc123", &domain);
     /// ```
-    pub fn new(key: &str, value: &str, domain: &String) -> Cookie {
+    pub fn new(key: &str, value: &str, domain: &str) -> Cookie {
         Self {
             key: key.to_string(),
             value: value.to_string(),
             max_age: None,
             path: "/".to_string(),
-            domain: domain.clone(),
+            domain: domain.parse().unwrap(),
             same_site: SameSite::Lax, // sensible default
             secure: false,
             is_http_only: false,

@@ -295,7 +295,7 @@ impl From<u16> for StatusCode {
             509 => StatusCode::NotExtended,
             510 => StatusCode::NetworkAuthenticationRequired,
 
-            500 | _ => StatusCode::InternalServerError,
+            _ => StatusCode::InternalServerError,
         }
     }
 }

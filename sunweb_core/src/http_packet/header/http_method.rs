@@ -1,4 +1,4 @@
-﻿use std::fmt;
+use std::fmt;
 use std::str::FromStr;
 
 /// Represents the standard HTTP methods.
@@ -90,5 +90,11 @@ impl fmt::Display for HTTPMethod {
             HTTPMethod::PATCH => write!(f, "PATCH"),
             HTTPMethod::CONNECT => write!(f, "CONNECT"),
         }
+    }
+}
+
+impl PartialEq<HTTPMethod> for &HTTPMethod {
+    fn eq(&self, other: &HTTPMethod) -> bool {
+        *self == other
     }
 }

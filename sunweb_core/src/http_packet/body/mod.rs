@@ -1,7 +1,11 @@
-﻿use std::ops::Deref;
-use std::collections::HashMap;
 use crate::http_packet::requests::url_decode;
+use std::collections::HashMap;
+use std::ops::Deref;
 
+/// The raw body of an HTTP request.
+///
+/// Obtain one via [`HTTPRequest::body`] — it returns `None` if no body was sent.
+/// `Body` derefs to `Vec<u8>` for direct byte access.
 pub struct Body(Vec<u8>);
 
 impl Deref for Body {
@@ -16,29 +20,33 @@ impl Body {
         Body(bytes)
     }
 
-    /// Body as a UTF-8 string
-    /// ```rust
-    /// let text = req.body()?.as_string()?;
-    /// ```
+    /// Decodes the body as a UTF-8 string, returning `None` if the bytes are
+    /// not valid UTF-8.
     pub fn as_string(&self) -> Option<String> {
         String::from_utf8(self.0.clone()).ok()
     }
 
-    /// Deserialize body as JSON directly into a typed struct
-    /// ```rust
+    /// Deserializes the body as JSON into `T`.
+    ///
+    /// # Errors
+    /// Returns `Err` if the body is not valid UTF-8 or fails to deserialize.
+    ///
+    /// ```rust,ignore
     /// #[derive(Deserialize)]
     /// struct CreateUser { name: String, age: u32 }
     ///
     /// let user = req.body()?.as_json::<CreateUser>()?;
-    /// println!("{}", user.name);
     /// ```
     pub fn as_json<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
         let text = self.as_string().ok_or("Body is not valid UTF-8")?;
         serde_json::from_str(&text).map_err(|e| e.to_string())
     }
 
-    /// Parse as url-encoded form fields
-    /// ```rust
+    /// Parses the body as `application/x-www-form-urlencoded` key-value pairs.
+    ///
+    /// Returns `None` if the body is not valid UTF-8.
+    ///
+    /// ```rust,ignore
     /// let fields = req.body()?.as_form()?;
     /// let name = fields.get("name")?;
     /// ```
@@ -48,9 +56,7 @@ impl Body {
 
         for pair in text.split('&') {
             if let Some(eq) = pair.find('=') {
-                let key = url_decode(&pair[..eq]);
-                let val = url_decode(&pair[eq + 1..]);
-                map.insert(key, val);
+                map.insert(url_decode(&pair[..eq]), url_decode(&pair[eq + 1..]));
             } else {
                 map.insert(url_decode(pair), String::new());
             }
@@ -59,16 +65,17 @@ impl Body {
         Some(map)
     }
 
-    /// Raw bytes — same as dereffing but more explicit
-    /// ```rust
-    /// let bytes: &[u8] = req.body()?.as_bytes();
-    /// ```
+    /// Returns the raw bytes of the body.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    /// Try to parse the body as any type that implements FromStr
-    /// ```rust
+    /// Parses the body into any type that implements [`FromStr`](std::str::FromStr).
+    ///
+    /// # Errors
+    /// Returns `Err` if the body is not valid UTF-8 or parsing fails.
+    ///
+    /// ```rust,ignore
     /// let id: u64 = req.body()?.parse::<u64>()?;
     /// ```
     pub fn parse<T: std::str::FromStr>(&self) -> Result<T, String>

@@ -133,28 +133,4 @@ impl ServerConfig {
         self.base_domain = base_domain;
         self
     }
-
-    /// Converts the server configuration to a string representation.
-    ///
-    /// This method returns a formatted string containing the IP address and port,
-    /// useful for logging or debugging purposes.
-    ///
-    /// # Returns
-    ///
-    /// A string in the format `"ip.ip.ip.ip:port"`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use sunweb::server::server_config::ServerConfig;
-    ///
-    /// let config = ServerConfig::new([127, 0, 0, 1], 8080);
-    /// assert_eq!(config.ip_as_string(), "127.0.0.1:8080");
-    /// ```
-    pub(crate) fn ip_as_string(&self) -> String {
-        format!(
-            "{}.{}.{}.{}:{}",
-            self.host[0], self.host[1], self.host[2], self.host[3], self.port
-        )
-    }
 }

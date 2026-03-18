@@ -1,5 +1,6 @@
-﻿/// Cache-Control directives
+/// Cache-Control directives
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum CacheControl {
     /// No caching at all
     NoCache,
@@ -22,6 +23,7 @@ pub enum CacheControl {
 }
 
 impl CacheControl {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> String {
         match self {
             CacheControl::NoCache => "no-cache".to_string(),
@@ -32,13 +34,11 @@ impl CacheControl {
             CacheControl::MaxAge(seconds) => format!("max-age={}", seconds),
             CacheControl::SMaxAge(seconds) => format!("s-maxage={}", seconds),
             CacheControl::NoTransform => "no-transform".to_string(),
-            CacheControl::Multiple(directives) => {
-                directives
-                    .iter()
-                    .map(|d| d.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            }
+            CacheControl::Multiple(directives) => directives
+                .iter()
+                .map(|d| d.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
         }
     }
 }

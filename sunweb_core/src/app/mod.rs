@@ -10,16 +10,21 @@ use crate::app::server::routes::{Route, RouteType};
 use crate::http_packet::header::connection::ConnectionType;
 use crate::http_packet::requests::HTTPRequest;
 use crate::logger::Logger;
-use crate::Response;
-use log::{error, info};
+use crate::status_code::StatusCode;
+use crate::{HTTPMethod, Response};
+use log::info;
 use rustls::ServerConfig as RustlsConfig;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
+/// The core server runtime — owns the listener sockets, routes, and middleware
+/// and drives the async accept loop.
+///
+/// You should not construct this directly. Use [`AppBuilder`] instead, which
+/// configures and starts a `WebServer` for you.
 pub struct WebServer {
-    pub(crate) config: ServerConfig,
     pub(crate) default_domain: String,
     pub(crate) middleware: Arc<Vec<Middleware>>,
     pub(crate) routes: Arc<Vec<Route>>,
@@ -29,6 +34,11 @@ pub struct WebServer {
 }
 
 impl WebServer {
+    /// Creates a new `WebServer` with the given config and optional HTTP/HTTPS
+    /// listener addresses.
+    ///
+    /// Registers the built-in request logger and error page middleware
+    /// automatically. Called internally by [`AppBuilder::build`].
     pub fn new(
         config: ServerConfig,
         http_addr: Option<([u8; 4], u16)>,
@@ -38,9 +48,9 @@ impl WebServer {
         let middlewares = vec![
             Middleware::new_request_response(None, Logger::log_request),
             Middleware::new_response_async_with_routes(None, WebServer::error_page),
+            Middleware::new_response_async_with_routes(None, WebServer::cors_check),
         ];
         WebServer {
-            config,
             default_domain,
             middleware: Arc::from(middlewares),
             routes: Arc::new(Vec::new()),
@@ -49,14 +59,21 @@ impl WebServer {
         }
     }
 
+    /// Appends a middleware to the chain.
     pub fn add_middleware(&mut self, middleware: Middleware) {
         Arc::make_mut(&mut self.middleware).push(middleware);
     }
 
+    /// Registers a route with the server.
     pub fn add_route(&mut self, route: Route) {
         Arc::make_mut(&mut self.routes).push(route);
     }
 
+    /// Blocks the current thread and starts the Tokio runtime, then begins
+    /// accepting connections.
+    ///
+    /// This is the final call in the builder chain — it does not return until
+    /// the server is shut down.
     pub fn start(&self) {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -65,6 +82,8 @@ impl WebServer {
             .block_on(self.run());
     }
 
+    /// Binds the configured listener sockets and spawns an accept loop task
+    /// for each one (HTTP and/or HTTPS).
     async fn run(&self) {
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
         let https_port = self.https_addr.as_ref().map(|(_, port, _)| *port);
@@ -101,6 +120,11 @@ impl WebServer {
         futures::future::join_all(tasks).await;
     }
 
+    /// Continuously accepts incoming TCP connections from `listener` and
+    /// spawns a task for each one.
+    ///
+    /// Each connection runs a keep-alive loop via [`Client::handle`] until the
+    /// connection is closed or an error occurs.
     async fn accept_loop(
         listener: TcpListener,
         default_domain: String,
@@ -124,12 +148,7 @@ impl WebServer {
                             return;
                         };
 
-                        loop {
-                            match client.handle().await {
-                                Some(ConnectionType::KeepAlive) => continue,
-                                _ => break,
-                            }
-                        }
+                        while let Some(ConnectionType::KeepAlive) = client.handle().await {}
                     });
                 }
                 Err(e) => eprintln!("Connection failed: {e}"),
@@ -137,6 +156,12 @@ impl WebServer {
         }
     }
 
+    /// Built-in response middleware that replaces the response body with a
+    /// custom error page when a matching [`RouteType::Error`] route is registered
+    /// for the response's status code.
+    ///
+    /// Only runs for responses with a 4xx or 5xx status code. Registered
+    /// automatically in [`WebServer::new`].
     pub(crate) fn error_page<'a>(
         request: &'a mut HTTPRequest,
         response: &'a mut Response,
@@ -149,48 +174,58 @@ impl WebServer {
                 return;
             }
 
-            if let Some(route) = routes
+            if let Some(handler) = routes
                 .iter()
                 .find(|r| r.route_type == RouteType::Error && r.status_code == status)
+                .and_then(|route| route.handler.as_ref())
             {
-                if let Some(handler) = &route.handler {
-                    let error_resp = handler(request).await;
-                    if let Some(body) = error_resp.body() {
-                        if let Some(s) = body.as_string() {
-                            response.set_body_string(s);
-                        }
-                    }
-                    response.set_content_type(error_resp.content_type().clone());
+                let error_resp = handler(request).await;
+                if let Some(s) = error_resp.body().and_then(|b| b.as_string()) {
+                    response.set_body_string(s);
                 }
+                response.set_content_type(error_resp.content_type().clone());
             }
         })
     }
 
+    /// CORS preflight middleware — not yet wired into the default middleware
+    /// chain.
+    ///
+    /// Intended to validate `Origin` headers and inject the appropriate
+    /// `Access-Control-*` response headers.
     pub(crate) fn cors_check<'a>(
         request: &'a mut HTTPRequest,
         response: &'a mut Response,
-        routes: &'a [Route],
+        _routes: &'a [Route],
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
-            let status = response.status_code;
+            let method = request.method();
+            let origin = request.message.headers.get_header("Origin");
 
-            if status.as_u16() < 400 {
+            let Some(origin) = origin else {
                 return;
-            }
+            };
 
-            if let Some(route) = routes
-                .iter()
-                .find(|r| r.route_type == RouteType::Error && r.status_code == status)
-            {
-                if let Some(handler) = &route.handler {
-                    let error_resp = handler(request).await;
-                    if let Some(body) = error_resp.body() {
-                        if let Some(s) = body.as_string() {
-                            response.set_body_string(s);
-                        }
-                    }
-                    response.set_content_type(error_resp.content_type().clone());
-                }
+            if method == HTTPMethod::OPTIONS {
+                let requested_method = request
+                    .message
+                    .headers
+                    .get_header("Access-Control-Request-Method")
+                    .unwrap_or_default();
+
+                let requested_headers = request
+                    .message
+                    .headers
+                    .get_header("Access-Control-Request-Headers")
+                    .unwrap_or_default();
+
+                response.set_cors_origin(&origin);
+                response.add_header("Access-Control-Allow-Methods", &requested_method);
+                response.add_header("Access-Control-Allow-Headers", &requested_headers);
+                response.set_cors_max_age(86400);
+                response.status_code = StatusCode::NoContent;
+            } else {
+                response.set_cors_origin(&origin);
             }
         })
     }

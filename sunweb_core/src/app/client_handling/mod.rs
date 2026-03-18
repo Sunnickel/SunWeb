@@ -5,8 +5,8 @@ use crate::app::server::routes::Route;
 use crate::app::server::routes::RouteType;
 use crate::http_packet::header::connection::ConnectionType;
 use crate::http_packet::header::content_types::ContentType;
-use crate::http_packet::responses::status_code::StatusCode;
 use crate::http_packet::responses::Response;
+use crate::http_packet::responses::status_code::StatusCode;
 use crate::{HTTPMethod, HTTPRequest};
 use log::{error, warn};
 use rustls::ServerConfig;
@@ -16,12 +16,14 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::server::TlsStream;
 
+/// Abstracts over plain TCP and TLS streams so the rest of the client
+/// handling code doesn't need to branch on the transport.
 enum Stream {
     Plain(TcpStream),
-    Tls(TlsStream<TcpStream>),
+    Tls(Box<TlsStream<TcpStream>>),
 }
 
 impl Stream {
@@ -47,23 +49,33 @@ impl Stream {
     }
 }
 
+/// Represents a single connected client and drives the request/response
+/// lifecycle for that connection.
+///
+/// One `Client` is spawned per accepted TCP connection. It reads requests,
+/// applies middleware, dispatches to the matching route, and writes the
+/// response back — repeating for keep-alive connections.
 pub(crate) struct Client {
     stream: Stream,
     default_domain: String,
     middleware: Arc<Vec<Middleware>>,
     routes: Arc<Vec<Route>>,
+    /// Whether this connection was accepted over TLS.
     is_https: bool,
+    /// The HTTPS port, used to build HTTP→HTTPS redirect URLs.
     https_port: Option<u16>,
 }
 
 impl Client {
+    /// Accepts a TCP stream and performs a TLS handshake if the first bytes
+    /// look like a TLS `ClientHello`. Returns `None` if the handshake fails.
     pub(crate) async fn new(
         stream: TcpStream,
         default_domain: String,
         middleware: Arc<Vec<Middleware>>,
         routes: Arc<Vec<Route>>,
         tls_config: Option<Arc<ServerConfig>>,
-        https_port: Option<u16>,  // NEW
+        https_port: Option<u16>,
     ) -> Option<Self> {
         let mut buf = [0u8; 3];
         stream.peek(&mut buf).await.expect("Couldn't peek stream");
@@ -74,7 +86,7 @@ impl Client {
             if let Some(tls_cfg) = tls_config {
                 let acceptor = TlsAcceptor::from(tls_cfg);
                 match acceptor.accept(stream).await {
-                    Ok(tls_stream) => Stream::Tls(tls_stream),
+                    Ok(tls_stream) => Stream::Tls(Box::new(tls_stream)),
                     Err(e) => {
                         warn!("TLS handshake failed: {e}");
                         return None;
@@ -97,6 +109,9 @@ impl Client {
         })
     }
 
+    /// Reads one request, runs the middleware chain, dispatches it, and writes
+    /// the response. Returns the `Connection` header value so the caller can
+    /// decide whether to keep the connection alive.
     pub(crate) async fn handle(&mut self) -> Option<ConnectionType> {
         let raw_request = self.read_request().await?;
 
@@ -108,21 +123,22 @@ impl Client {
             }
         };
 
-        if !self.is_https {
-            if let Some(https_port) = self.https_port {
-                let host = request.host()?; 
-                let bare_host = host.split(':').next().unwrap_or(&host);
-                let location = if https_port == 443 {
-                    format!("https://{}{}", bare_host, request.path())
-                } else {
-                    format!("https://{}:{}{}", bare_host, https_port, request.path())
-                };
+        // Redirect plain HTTP to HTTPS when both listeners are active.
+        if !self.is_https
+            && let Some(https_port) = self.https_port
+        {
+            let host = request.host()?;
+            let bare_host = host.split(':').next().unwrap_or(&host);
+            let location = if https_port == 443 {
+                format!("https://{}{}", bare_host, request.path())
+            } else {
+                format!("https://{}:{}{}", bare_host, https_port, request.path())
+            };
 
-                let mut response = Response::new(StatusCode::MovedPermanently);
-                response.add_header("Location", &location);
-                self.send_response(response).await;
-                return None;
-            }
+            let mut response = Response::new(StatusCode::MovedPermanently);
+            response.add_header("Location", &location);
+            self.send_response(response).await;
+            return None;
         }
 
         let connection = request.message.headers.connection.clone();
@@ -138,6 +154,7 @@ impl Client {
             .apply_response_middleware(modified_request.clone(), response)
             .await;
 
+        // If OPTIONS produced no CORS headers, fall through to the route handler.
         if *modified_request.method() == HTTPMethod::OPTIONS
             && response.get_header("Access-Control-Allow-Origin").is_none()
         {
@@ -153,6 +170,8 @@ impl Client {
 
     // ── Reading ───────────────────────────────────────────────────────────────
 
+    /// Reads a complete HTTP request from the stream, including the body if
+    /// `Content-Length` is set. Times out after 5 seconds.
     async fn read_request(&mut self) -> Option<String> {
         let read_future = async {
             let mut buffer = Vec::with_capacity(2048);
@@ -201,6 +220,8 @@ impl Client {
 
     // ── Middleware ────────────────────────────────────────────────────────────
 
+    /// Runs all request-phase middleware in registration order, scoped by
+    /// route prefix.
     async fn apply_request_middleware(&self, mut request: HTTPRequest) -> HTTPRequest {
         for mw in self.middleware.iter() {
             if mw.route != "*" && !request.path().starts_with(&mw.route) {
@@ -213,6 +234,8 @@ impl Client {
         request
     }
 
+    /// Runs all response-phase middleware in registration order, scoped by
+    /// route prefix.
     async fn apply_response_middleware(
         &self,
         mut request: HTTPRequest,
@@ -239,6 +262,7 @@ impl Client {
 
     // ── Sending ───────────────────────────────────────────────────────────────
 
+    /// Serializes `response` and writes it to the stream.
     async fn send_response(&mut self, response: Response) {
         let bytes = response.to_bytes();
         if let Err(e) = self.stream.write_all(&bytes).await {
@@ -250,6 +274,11 @@ impl Client {
 
     // ── Routing ───────────────────────────────────────────────────────────────
 
+    /// Dispatches the request to the first matching route in priority order:
+    /// static prefix → proxy prefix → exact method + path match.
+    ///
+    /// Returns `404 Not Found` if no route matches, or `405 Method Not
+    /// Allowed` if the path matches but the method does not.
     async fn handle_routing(&self, request: &HTTPRequest) -> Response {
         let host = request.host().unwrap_or_default();
         let path = request.path();
@@ -262,30 +291,26 @@ impl Client {
             .collect();
 
         // 1. Static prefix match
-        if let Some(route) = domain_routes
+        if let Some(folder) = domain_routes
             .iter()
             .find(|r| r.route_type == RouteType::Static && path.starts_with(&r.path))
+            .and_then(|r| r.static_folder.as_ref())
         {
-            if let Some(folder) = &route.static_folder {
-                return get_static_file_response(folder, request);
-            }
+            return get_static_file_response(folder, request);
         }
 
         // 2. Proxy prefix match
-        if let Some(route) = domain_routes
+        if let Some((prefix, external)) = domain_routes
             .iter()
             .find(|r| r.route_type == RouteType::Proxy && path.starts_with(&r.path))
+            .and_then(|r| r.proxy_url.as_ref().map(|u| (r.path.clone(), u.clone())))
         {
-            if let Some(external) = &route.proxy_url {
-                let prefix = route.path.clone();
-                let external = external.clone();
-                let request_clone = request.clone();
-                return tokio::task::spawn_blocking(move || {
-                    get_proxy_response(&prefix, &external, &request_clone)
-                })
-                .await
-                .unwrap_or_else(|_| Response::internal_error());
-            }
+            let request_clone = request.clone();
+            return tokio::task::spawn_blocking(move || {
+                get_proxy_response(&prefix, &external, &request_clone)
+            })
+            .await
+            .unwrap_or_else(|_| Response::internal_error());
         }
 
         // 3. Exact match on path + method
@@ -305,8 +330,10 @@ impl Client {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Extracts the `Content-Length` value from raw header bytes, returning `0`
+/// if the header is absent or unparseable.
 fn parse_content_length(header_bytes: &[u8]) -> usize {
     String::from_utf8_lossy(header_bytes)
         .lines()
@@ -316,6 +343,7 @@ fn parse_content_length(header_bytes: &[u8]) -> usize {
         .unwrap_or(0)
 }
 
+/// Serves a file from `folder` matching the request path, or returns `404`.
 fn get_static_file_response(folder: &String, request: &HTTPRequest) -> Response {
     let (content, content_type) = get_static_file_content(request.path(), folder);
 
@@ -329,6 +357,8 @@ fn get_static_file_response(folder: &String, request: &HTTPRequest) -> Response 
     response
 }
 
+/// Forwards the request to an external server via HTTP or HTTPS proxy and
+/// returns the proxied response, or `502 Bad Gateway` on failure.
 fn get_proxy_response(prefix: &str, external: &str, request: &HTTPRequest) -> Response {
     let sub_path = request.path().strip_prefix(prefix).unwrap_or("/");
     let forward_path = format!("/{}", sub_path.trim_start_matches('/'));
@@ -344,8 +374,8 @@ fn get_proxy_response(prefix: &str, external: &str, request: &HTTPRequest) -> Re
     };
 
     let raw = match proxy.scheme {
-        ProxySchema::HTTP => Proxy::send_http_request(&mut stream, &proxy.path, &proxy.host),
-        ProxySchema::HTTPS => Proxy::send_https_request(&mut stream, &proxy.path, &proxy.host),
+        ProxySchema::Http => Proxy::send_http_request(&mut stream, &proxy.path, &proxy.host),
+        ProxySchema::Https => Proxy::send_https_request(&mut stream, &proxy.path, &proxy.host),
     };
 
     match raw {

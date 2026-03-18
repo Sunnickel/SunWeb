@@ -26,8 +26,6 @@ pub mod multipart;
 pub mod text;
 pub mod video;
 
-use std::fmt;
-use std::str::FromStr;
 use crate::http_packet::header::content_types::application::ApplicationSubType;
 use crate::http_packet::header::content_types::audio::AudioSubType;
 use crate::http_packet::header::content_types::font::FontSubType;
@@ -35,6 +33,8 @@ use crate::http_packet::header::content_types::image::ImageSubType;
 use crate::http_packet::header::content_types::multipart::MultipartSubType;
 use crate::http_packet::header::content_types::text::TextSubType;
 use crate::http_packet::header::content_types::video::VideoSubType;
+use std::fmt;
+use std::str::FromStr;
 
 /// A strongly-typed HTTP media type (MIME type).
 ///

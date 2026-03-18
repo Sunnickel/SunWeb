@@ -45,6 +45,12 @@ pub struct CspBuilder {
     directives: Vec<CspDirective>,
 }
 
+impl Default for CspBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CspBuilder {
     pub fn new() -> Self {
         Self {

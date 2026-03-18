@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use sunweb::http_packet::responses::status_code::StatusCode;
 use sunweb::*;
@@ -30,6 +31,17 @@ struct PublicFiles;
 fn index(_: &HTTPRequest) -> HtmlResponse {
     let content = get_file_content(Path::new("./example_app/resources/templates/index.html"));
     HtmlResponse::ok(content.as_str())
+}
+
+#[get("/template")]
+fn template(_: &HTTPRequest) -> HtmlResponse {
+    let content = get_file_content(Path::new(
+        "./example_app/resources/templates/template_test.html",
+    ));
+    let mut context: Context = HashMap::new();
+    context.insert("testing".to_string(), "templating works!".into());
+
+    render!(content, context)
 }
 
 #[get("/hello")]
@@ -76,6 +88,8 @@ fn server_error(_: &HTTPRequest) -> HtmlResponse {
 }
 
 fn main() {
+    Logger::init(log::LevelFilter::Info);
+
     MainApp::builder()
         .http("0.0.0.0:80")
         .https("0.0.0.0:443")

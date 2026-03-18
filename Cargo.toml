@@ -1,15 +1,24 @@
 [workspace]
 resolver = "2"
-
 members = ["sunweb", "sunweb_core", "sunweb_macros", "example_app", "sunweb_templating"]
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0"
+version = "0.3.0"
 license = "MIT"
+authors = ["Sunnickel"]
+repository = "https://github.com/Sunnickel/SunWeb"
+homepage = "https://github.com/Sunnickel/SunWeb"
 
 [workspace.dependencies]
-syn = { version = "2", features = ["full"] }
-quote = "1"
+sunweb_core     = { path = "sunweb_core",     version = "0.3.0" }
+sunweb_macros   = { path = "sunweb_macros",   version = "0.3.0" }
+sunweb_templating = { path = "sunweb_templating", version = "0.3.0" }
+
+# External
+syn       = { version = "2", features = ["full"] }
+quote     = "1"
 proc-macro2 = "1"
 inventory = "0.3"
+tokio     = { version = "1", features = ["full"] }
+log       = "0.4"

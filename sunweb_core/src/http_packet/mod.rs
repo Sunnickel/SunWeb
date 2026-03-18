@@ -3,10 +3,10 @@
 //! This module is **internal**; users interact with the higher-level
 //! [`HTTPRequest`](crate::webserver::requests::HTTPRequest) and
 //! [`HTTPResponse`](crate::webserver::responses::Response) types instead.
+pub mod body;
 pub mod header;
 pub mod requests;
 pub mod responses;
-pub mod body;
 
 use header::HTTPHeader;
 

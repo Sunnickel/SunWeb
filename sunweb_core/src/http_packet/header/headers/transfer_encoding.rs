@@ -1,4 +1,4 @@
-﻿/// Transfer-Encoding types
+/// Transfer-Encoding types
 #[derive(Clone, Debug)]
 pub enum TransferEncoding {
     /// Chunked transfer encoding
@@ -20,13 +20,11 @@ impl TransferEncoding {
             TransferEncoding::Compress => "compress".to_string(),
             TransferEncoding::Deflate => "deflate".to_string(),
             TransferEncoding::Gzip => "gzip".to_string(),
-            TransferEncoding::Multiple(encodings) => {
-                encodings
-                    .iter()
-                    .map(|e| e.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            }
+            TransferEncoding::Multiple(encodings) => encodings
+                .iter()
+                .map(|e| e.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
         }
     }
 }

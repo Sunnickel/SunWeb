@@ -1,31 +1,30 @@
+#![doc = include_str!("../../README.md")]
+
 pub use sunweb_core::*;
 
-pub use sunweb_core::{
-    AppBuilder,
-    HTTPMethod,
-    HTTPRequest,
-    Response,
-    parse_addr,
-};
+#[doc(inline)]
+pub use sunweb_core::{AppBuilder, HTTPMethod, HTTPRequest, Response, parse_addr};
 
-pub use sunweb_core::{
-    RouteRegistration,
-    MiddlewareRegistration,
-};
+#[doc(inline)]
+pub use sunweb_core::{MiddlewareRegistration, RouteRegistration};
 
+#[doc(inline)]
 pub use sunweb_core::response_types::{
-    TextResponse, BinaryResponse,
-    HtmlResponse, JsonResponse, PlainTextResponse,
-    ImageResponse, RedirectResponse, NoContentResponse,
+    BinaryResponse, HtmlResponse, ImageResponse, JsonResponse, NoContentResponse,
+    PlainTextResponse, RedirectResponse, TextResponse,
 };
 
+#[cfg(feature = "templating")]
+#[doc(inline)]
+pub use sunweb_macros::render;
+
+#[doc(inline)]
 pub use sunweb_macros::{
-    App,
-    get, post, put, delete, patch, head, options,
-    static_files,
-    error_page,
-    proxy,
-    middleware
+    App, delete, error_page, get, head, middleware, options, patch, post, proxy, put, static_files,
 };
+
+#[cfg(feature = "templating")]
+#[doc(inline)]
+pub use sunweb_templating::{Context, Value, render_response};
 
 pub use inventory;

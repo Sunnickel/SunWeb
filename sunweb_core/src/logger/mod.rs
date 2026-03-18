@@ -1,70 +1,99 @@
-﻿use chrono::Utc;
-use log::{Level, Metadata, Record};
-use crate::http_packet::requests::HTTPRequest;
+﻿use crate::http_packet::requests::HTTPRequest;
 use crate::http_packet::responses::Response;
+use chrono::Utc;
+use log::{Level, Metadata, Record};
 
-/// ANSI color code for red text.
 const RED: &str = "\x1b[31m";
-
-/// ANSI color code for yellow text.
 const YELLOW: &str = "\x1b[33m";
-
-/// ANSI color code for blue text.
 const BLUE: &str = "\x1b[34m";
-
-/// ANSI color code for green text.
 const GREEN: &str = "\x1b[32m";
-
-/// ANSI color code for dimmed text.
 const DIM: &str = "\x1b[2m";
-
-/// ANSI color code to reset text formatting.
 const RESET: &str = "\x1b[0m";
 
-/// A custom logger that provides colored console output based on log level.
+/// Colored console logger for SunWeb.
 ///
-/// This logger uses ANSI escape codes to colorize log messages:
-/// - `Error` messages are displayed in red.
-/// - `Warn` messages are displayed in yellow.
-/// - `Info` messages are displayed in blue.
-/// - `Debug` messages are displayed in green.
-/// - `Trace` messages are displayed dimmed.
+/// Implements [`log::Log`] and can be registered as the global logger via
+/// [`Logger::init`]. Once initialized, use the standard [`log`] macros
+/// (`error!`, `warn!`, `info!`, `debug!`, `trace!`) anywhere in your app.
 ///
-/// The logger implements the `log::Log` trait, allowing integration with
-/// the standard Rust `log` facade.
+/// Output is color-coded by level:
 ///
-/// # Examples
+/// | Level   | Color  |
+/// |---------|--------|
+/// | `error` | Red    |
+/// | `warn`  | Yellow |
+/// | `info`  | Blue   |
+/// | `debug` | Green  |
+/// | `trace` | Dimmed |
 ///
-/// ```rust
-/// use log::SetLoggerError;
-/// use crate::server::logger::Logger;
+/// # Example
+/// ```rust,ignore
+/// use sunweb::Logger;
+/// use log::LevelFilter;
 ///
-/// # fn main() -> Result<(), SetLoggerError> {
-/// log::set_logger(&Logger).unwrap();
-/// log::set_max_level(log::LevelFilter::Trace);
-/// log::error!("This will appear in red");
-/// log::info!("This will appear in blue");
-/// # Ok(())
-/// # }
+/// Logger::init(LevelFilter::Info);
+///
+/// log::info!("Server starting...");
+/// log::warn!("Low memory");
+/// log::error!("Crashed!");
 /// ```
 pub struct Logger;
 
-impl log::Log for Logger {
-    /// Determines if a log message should be processed based on its metadata.
+static LOGGER: Logger = Logger;
+
+impl Logger {
+    /// Registers `Logger` as the global logger with the given max level.
     ///
-    /// Returns `true` if the log level of the metadata is less than or equal to
-    /// the maximum allowed log level set by `log::max_level()`.
+    /// Call this once at the start of `main` before starting the server.
+    /// Panics if a logger has already been set.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use sunweb::Logger;
+    /// use log::LevelFilter;
+    ///
+    /// Logger::init(LevelFilter::Info);
+    /// ```
+    pub fn init(level: log::LevelFilter) {
+        log::set_logger(&LOGGER).expect("Logger already set");
+        log::set_max_level(level);
+    }
+
+    /// Built-in request/response middleware that prints a colored access log
+    /// line for every request.
+    ///
+    /// Registered automatically by [`WebServer::new`] — you do not need to
+    /// call this directly.
+    pub(crate) fn log_request(request: &mut HTTPRequest, response: &mut Response) {
+        let host = request.host().map(|h| h.to_string()).unwrap_or_default();
+
+        let color = match response.status_code.as_u16() {
+            200..=299 => GREEN,
+            300..=399 => YELLOW,
+            400..=599 => RED,
+            _ => RESET,
+        };
+
+        println!(
+            "{}[INFO ]{}[{}] {} [{}] {} {}-> {}{}",
+            DIM,
+            RESET,
+            Utc::now().format("%Y-%m-%d %H:%M:%S"),
+            request.method,
+            host,
+            request.path,
+            color,
+            response.status_code,
+            RESET
+        );
+    }
+}
+
+impl log::Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
         metadata.level() <= log::max_level()
     }
 
-    /// Logs a record with appropriate coloring based on its level.
-    ///
-    /// Messages are printed directly to stdout using ANSI color codes.
-    ///
-    /// # Arguments
-    ///
-    /// * `record` - The log record to process and display.
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
             match record.level() {
@@ -77,67 +106,6 @@ impl log::Log for Logger {
         }
     }
 
-    /// Flushes any buffered records.
-    ///
-    /// This implementation does nothing because logging writes directly to stdout.
+    /// No-op — output is written directly to stdout with no buffering.
     fn flush(&self) {}
-}
-
-impl Logger {
-    /// Logs the end of an HTTP request, including the response status code.
-    ///
-    /// Colors the status code based on the HTTP response class:
-    /// - `2xx` is green
-    /// - `3xx` is yellow
-    /// - `4xx` and `5xx` are red
-    /// - Others use the default color
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The HTTP response to log.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::server::logger::Logger;
-    /// use crate::server::responses::HTTPResponse;
-    ///
-    /// let mut res = HTTPResponse::new(200);
-    /// Logger::log_request_end(&mut res);
-    /// ```
-    pub(crate) fn log_request_end(response: &mut Response) {
-        let color = match response.status_code.as_u16() {
-            200..=299 => GREEN,
-            300..=399 => YELLOW,
-            400..=599 => RED,
-            _ => RESET,
-        };
-
-        println!(" {}-> {}{}{}", color, response.status_code, RESET, "");
-    }
-
-    pub(crate) fn log_request(request: &mut HTTPRequest, response: &mut Response) {
-        let host = request.host().map(|h| h.to_string()).unwrap_or_default();
-
-        let color = match response.status_code.as_u16() {
-            200..=299 => GREEN,
-            300..=399 => YELLOW,
-            400..=599 => RED,
-            _ => RESET,
-        };
-
-        println!(
-            "{}[INFO ]{}[{}] {} [{}] {} {}-> {}{}{}",
-            DIM,
-            RESET,
-            Utc::now().format("%Y-%m-%d %H:%M:%S"),
-            request.method,
-            host,
-            request.path,
-            color,
-            response.status_code,
-            RESET,
-            ""
-        );
-    }
 }

@@ -20,9 +20,9 @@ use std::time::Duration;
 #[derive(Debug)]
 pub(crate) enum ProxySchema {
     /// Plain-text HTTP (port 80 by default).
-    HTTP,
+    Http,
     /// TLS-wrapped HTTPS (port 443 by default).
-    HTTPS,
+    Https,
 }
 
 /// A very small HTTP/HTTPS client that can execute one `GET` request.
@@ -57,7 +57,7 @@ impl Proxy {
             host: String::new(),
             port: 0u16,
             path: String::new(),
-            scheme: ProxySchema::HTTPS,
+            scheme: ProxySchema::Https,
         }
     }
 
@@ -92,8 +92,8 @@ impl Proxy {
         };
 
         self.scheme = match scheme.as_str() {
-            "https" => ProxySchema::HTTPS,
-            "http" => ProxySchema::HTTP,
+            "https" => ProxySchema::Https,
+            "http" => ProxySchema::Http,
             _ => return None,
         };
         self.host = host;

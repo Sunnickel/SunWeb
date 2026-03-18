@@ -1,5 +1,38 @@
+//! A lightweight template engine for the SunWeb framework.
+//!
+//! You should not depend on this crate directly — use [`sunweb`] with the
+//! `templating` feature instead, which re-exports everything from here.
+//!
+//! # Template Syntax
+//!
+//! | Syntax | Description |
+//! |---|---|
+//! | `{{ name }}` | Inserts a variable from the context |
+//! | `{% if condition %}` ... `{% endif %}` | Conditional block |
+//! | `{% for item in list %}` ... `{% endfor %}` | Loop over a list |
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use sunweb::{Context, Value, render};
+//!
+//! let mut ctx = Context::new();
+//! ctx.insert("title".into(), Value::from("Hello"));
+//! ctx.insert("show_footer".into(), Value::Bool(true));
+//! ctx.insert("users".into(), Value::List(vec![
+//!     [("user.name".into(), Value::from("Alice"))].into(),
+//!     [("user.name".into(), Value::from("Bob"))].into(),
+//! ]));
+//!
+//! // template: "<h1>{{ title }}</h1>"
+//! //           "{% if show_footer %}<footer>bye</footer>{% endif %}"
+//! //           "{% for user in users %}<p>{{ user.name }}</p>{% endfor %}"
+//! ```
+
 use std::collections::HashMap;
-use sunweb_core::Response;
+use sunweb_core::response_types::{HtmlResponse, TextResponse};
+
+// ── AST ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 enum Node {
@@ -16,38 +49,96 @@ enum Node {
     },
 }
 
+// ── Lexer tokens ─────────────────────────────────────────────────────────────
+
 #[derive(Debug)]
 enum Token<'a> {
     Text(&'a str),
     Variable(&'a str),   // {{ name }}
-    BlockStart(&'a str), // {% if condition %}
-    BlockEnd(&'a str),   // {% endif %}
+    BlockStart(&'a str), // {% if / for ... %}
+    BlockEnd(&'a str),   // {% endif / endfor %}
 }
 
+// ── Public API ───────────────────────────────────────────────────────────────
+
+/// A value that can be inserted into a [`Context`] and used in templates.
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::Value;
+///
+/// let s = Value::from("hello");
+/// let b = Value::Bool(true);
+/// let list = Value::List(vec![
+///     [("item.name".into(), Value::from("Alice"))].into(),
+/// ]);
+/// ```
 #[derive(Debug, Clone)]
 pub enum Value {
+    /// A string value, rendered directly into the template.
     Str(String),
+    /// A boolean value, used in `{% if %}` conditions.
     Bool(bool),
+    /// A list of row maps, used in `{% for %}` loops.
+    ///
+    /// Each entry is a map of `"var.field"` keys to [`Value`]s,
+    /// accessible in templates as `{{ var.field }}`.
     List(Vec<HashMap<String, Value>>),
 }
 
-pub type Context = HashMap<String, Value>;
-
-pub fn render_response(template: &str, ctx: &Context) -> Response {
-    let body = render(template, ctx);
-    let mut response = Response::ok();
-    response.set_body(Vec::from(body));
-    response.set_html();
-    response
+impl From<String> for Value {
+    fn from(s: String) -> Self {
+        Value::Str(s)
+    }
 }
 
+impl From<&str> for Value {
+    fn from(s: &str) -> Self {
+        Value::Str(s.to_string())
+    }
+}
+
+/// A map of variable names to [`Value`]s passed into a template.
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::{Context, Value};
+///
+/// let mut ctx = Context::new();
+/// ctx.insert("name".into(), Value::from("Alice"));
+/// ctx.insert("logged_in".into(), Value::Bool(true));
+/// ```
+pub type Context = HashMap<String, Value>;
+
+/// Renders a template string with the given context and returns an [`HtmlResponse`].
+///
+/// You typically don't call this directly — use the [`render!`] macro instead,
+/// which calls this function and returns the response from your route handler.
+///
+/// # Panics
+/// Panics if the template contains unclosed `{{`, `{%`, or mismatched
+/// `{% if %}`/`{% for %}` blocks.
+pub fn render_response(template: &str, ctx: &Context) -> HtmlResponse {
+    let body = render(template, ctx);
+    HtmlResponse::ok(body)
+}
+
+/// Renders a template string with the given context and returns the output as a [`String`].
+///
+/// Prefer [`render_response`] or the [`render!`] macro in route handlers.
+///
+/// # Panics
+/// Panics if the template contains unclosed `{{`, `{%`, or mismatched
+/// `{% if %}`/`{% for %}` blocks.
 pub fn render(template: &str, ctx: &Context) -> String {
     let tokens = lex(template);
     let nodes = parse(&tokens);
     render_nodes(&nodes, ctx)
 }
 
-pub fn render_nodes(nodes: &[Node], ctx: &Context) -> String {
+// ── Internals ────────────────────────────────────────────────────────────────
+
+fn render_nodes(nodes: &[Node], ctx: &Context) -> String {
     let mut out = String::new();
 
     for node in nodes {
@@ -79,7 +170,6 @@ pub fn render_nodes(nodes: &[Node], ctx: &Context) -> String {
                 if let Some(Value::List(items)) = ctx.get(iterable.as_str()) {
                     for item in items {
                         let mut inner_ctx = ctx.clone();
-                        // Merge loop variable into context
                         inner_ctx.extend(
                             item.iter()
                                 .map(|(k, v)| (format!("{}.{}", var, k), v.clone())),
@@ -94,7 +184,7 @@ pub fn render_nodes(nodes: &[Node], ctx: &Context) -> String {
     out
 }
 
-fn lex(input: &str) -> Vec<Token> {
+fn lex(input: &'_ str) -> Vec<Token<'_>> {
     let mut tokens = Vec::new();
     let mut rest = input;
 
@@ -137,18 +227,16 @@ fn parse(tokens: &[Token]) -> Vec<Node> {
             Token::Text(t) => nodes.push(Node::Text(t.to_string())),
             Token::Variable(v) => nodes.push(Node::Variable(v.to_string())),
             Token::BlockStart(expr) => {
-                if expr.starts_with("if ") {
-                    let condition = expr[3..].trim().to_string();
-                    // collect body tokens until endif
+                if let Some(stripped) = expr.strip_prefix("for ") {
+                    let condition = stripped.trim().to_string();
                     let (body_tokens, consumed) = collect_until(&tokens[i + 1..], "endif");
                     nodes.push(Node::IfBlock {
                         condition,
                         body: parse(body_tokens),
                     });
                     i += consumed;
-                } else if expr.starts_with("for ") {
-                    // "for item in items"
-                    let parts: Vec<&str> = expr[4..].splitn(3, ' ').collect();
+                } else if let Some(stripped) = expr.strip_prefix("for ") {
+                    let parts: Vec<&str> = stripped.splitn(3, ' ').collect();
                     let var = parts[0].to_string();
                     let iterable = parts[2].to_string();
                     let (body_tokens, consumed) = collect_until(&tokens[i + 1..], "endfor");
@@ -173,7 +261,6 @@ fn collect_until<'a>(tokens: &'a [Token<'a>], end_tag: &str) -> (&'a [Token<'a>]
 
     for (i, token) in tokens.iter().enumerate() {
         match token {
-            // Track nesting — if there's an inner if/for, we need to skip its end tag
             Token::BlockStart(expr) => {
                 if expr.starts_with("if ") || expr.starts_with("for ") {
                     depth += 1;
@@ -182,7 +269,6 @@ fn collect_until<'a>(tokens: &'a [Token<'a>], end_tag: &str) -> (&'a [Token<'a>]
             Token::BlockEnd(expr) => {
                 if expr.trim() == end_tag {
                     if depth == 0 {
-                        // Found our matching end tag
                         return (&tokens[..i], i + 1);
                     } else {
                         depth -= 1;

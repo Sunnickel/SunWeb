@@ -1,4 +1,4 @@
-﻿/// Content-Encoding types
+/// Content-Encoding types
 #[derive(Clone, Debug)]
 pub enum ContentEncoding {
     /// Gzip compression
@@ -20,13 +20,11 @@ impl ContentEncoding {
             ContentEncoding::Deflate => "deflate".to_string(),
             ContentEncoding::Brotli => "br".to_string(),
             ContentEncoding::Identity => "identity".to_string(),
-            ContentEncoding::Multiple(encodings) => {
-                encodings
-                    .iter()
-                    .map(|e| e.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            }
+            ContentEncoding::Multiple(encodings) => encodings
+                .iter()
+                .map(|e| e.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
         }
     }
 }

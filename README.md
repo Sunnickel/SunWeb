@@ -4,216 +4,246 @@
 A lightweight, fast, and flexible HTTP/HTTPS web server written in Rust with domain routing, middleware support, and TLS
 capabilities.
 
+---
+
 ## Features
 
-- **HTTP/HTTPS Support**: Built-in TLS/SSL support using rustls
-- **Domain-Based Routing**: Multi-domain and subdomain routing capabilities
-- **Middleware System**: Flexible middleware for request/response processing
-- **Static File Serving**: Efficient static file serving with automatic MIME type detection
-- **Custom Route Handlers**: Define custom logic for specific routes
-- **Custom Error Managment**: Define sites that get shown when specific error get thrown
-- **Cookie Management**: Full cookie support with security attributes
-- **Colored Logging**: Built-in colored console logging for better visibility
-- **Thread-Per-Connection**: Handles each client connection in a separate thread
+- **Macro-driven routing** — define routes with `#[get]`, `#[post]`, `#[put]`, `#[delete]`, `#[patch]`, `#[head]`, `#[options]`
+- **HTTP & HTTPS** — built-in TLS via `rustls`, automatic HTTP → HTTPS redirect
+- **Middleware** — request, response, and request+response middleware, scoped by path prefix
+- **Static file serving** — `#[static_files("/assets", "./public")]`
+- **Reverse proxy** — `#[proxy("/api", "http://localhost:3000")]`
+- **Custom error pages** — `#[error_page(404)]`
+- **Templating** *(optional feature)* — lightweight `{{ var }}`, `{% if %}`, `{% for %}` engine
+- **Colored logging** — built-in `Logger` with per-level ANSI colors
+- **Cookie support** — full cookie jar on request and response
+- **Keep-alive** — persistent connections handled automatically
+
+---
 
 ## Installation
+```toml
+[dependencies]
+sunweb = "0.3.0"
+```
 
-Add this to your `Cargo.toml`:
+With templating:
+```toml
+[dependencies]
+sunweb = { version = "0.3.0", features = ["templating"] }
+```
 
-```toml 
-[dependencies] sunweb = "0.2.1"
-``` 
-
-Or install from GitHub:
-
-```toml 
-[dependencies] sunweb = { git = "https://github.com/Sunnickel/SunWeb" }
-``` 
+---
 
 ## Quick Start
+```rust
+use sunweb::{App, get, HTTPRequest, Response};
+use log::LevelFilter;
 
-```rust 
-use sunweb::webserver::{WebServer, ServerConfig};
-use sunweb::WEB_LOGGER;
+#[derive(App)]
+struct MyApp;
+
+#[get("/")]
+async fn index(req: HTTPRequest) -> Response {
+    Response::ok()
+        .set_html()
+        .set_body_string("Hello from SunWeb!".into())
+}
 
 fn main() {
-    // Initialize logger 
-    log::set_logger(&WEB_LOGGER).unwrap();
-    log::set_max_level(log::LevelFilter::Info);
+    sunweb::Logger::init(LevelFilter::Info);
 
-    // Create server configuration
-    let config = ServerConfig::new([127, 0, 0, 1], 8080)
-        .set_base_domain("localhost".to_string());
-
-    // Create and configure server
-    let mut server = WebServer::new(config);
-
-    // Add a simple route
-    server.add_route_file("/", "./static/index.html", None).unwrap();
-
-    // Start the server
-    server.start();
+    MyApp::builder()
+        .http("0.0.0.0:8080")
+        .run();
 }
 ```
 
-## Usage Examples
+---
 
-### Basic HTTP Server
-
+## HTTPS
 ```rust
-use sunweb::webserver::{WebServer, ServerConfig};
-let config = ServerConfig::new([127, 0, 0, 1], 8080);
-let server = WebServer::new(config); server.start();
+MyApp::builder()
+    .http("0.0.0.0:8080")       // redirects to HTTPS automatically
+    .https("0.0.0.0:8443")
+    .cert("key.pem", "cert.pem")
+    .domain("example.com")
+    .run();
 ```
 
-### HTTPS Server with TLS
+---
 
-```rust 
-let config = ServerConfig::new([127, 0, 0, 1], 443).add_cert("private_key.pem".to_string(), "cert.pem".to_string()).expect("Failed to load certificates");
-let server = WebServer::new(config); server.start();
-``` 
-
-### Custom Route Handlers
-
+## Routing
 ```rust
-use sunweb::webserver::responses::{Response, ResponseCodes};
-use std::sync::Arc;
+use sunweb::{get, post, delete, HTTPRequest, Response, JsonResponse, TextResponse};
 
-server.add_custom_route("/api/hello", | req, domain| {
-let content = Arc::new(String::from(r#"{"message": "Hello, World!"}"#));
-let mut response = Response::new(content, Some(ResponseCodes::Ok), None);
-response.headers.add_header("Content-Type", "application/json");
-response
-}, None).unwrap();
+#[get("/users")]
+async fn list_users(req: HTTPRequest) -> JsonResponse {
+    JsonResponse::ok(r#"{"users": []}"#)
+}
+
+#[post("/users")]
+async fn create_user(req: HTTPRequest) -> JsonResponse {
+    let name = req.form("name").unwrap_or("unknown");
+    JsonResponse::ok(format!(r#"{{"name": "{}"}}"#, name))
+}
+
+#[delete("/users")]
+async fn delete_user(req: HTTPRequest) -> Response {
+    Response::no_content()
+}
 ```
 
-Static File Serving
+---
 
+## Static Files
 ```rust
-// Serve all files in the ./static folder under /static route
-server.add_static_route("/static", "./static", None).unwrap();
+use sunweb::static_files;
+
+#[static_files("/assets", "./public")]
+struct Assets;
 ```
 
-Working with Cookies
+---
 
+## Reverse Proxy
 ```rust
-use sunweb::webserver::cookie::{Cookie, SameSite};
-use sunweb::webserver::Domain;
+use sunweb::proxy;
 
-server.add_custom_route("/set-cookie", | req, domain| {
-let content = Arc::new(String::from("Cookie set!"));
-let mut response = Response::new(content, None, None);
-
-let cookie = Cookie::new("session_id", "abc123", domain)
-.expires(Some(3600))  // 1 hour
-.secure()
-.http_only()
-.same_site(SameSite::Strict);
-
-response.add_cookie(cookie);
-response
-
-}, None).unwrap();
+#[proxy("/api", "http://localhost:3000")]
+struct ApiProxy;
 ```
 
-Subdomain Routing
+---
 
+## Middleware
 ```rust
-use sunweb::webserver::Domain;
+use sunweb::{middleware, HTTPRequest, Response};
 
-let api_domain = Domain::new("api");
-server.add_subdomain_router( & api_domain);
+// Applies to all routes
+#[middleware]
+fn log_requests(req: &mut HTTPRequest) {
+    println!("→ {} {}", req.method(), req.path());
+}
 
-// Add routes specifically for api.yourdomain.com
-server.add_custom_route("/users", | req, domain| {
-// API logic here
-Response::new(
-Arc::new(String::from(r#"{"users": []}"#)),
-Some(ResponseCodes::Ok),
-None
-)
-}, Some( & api_domain)).unwrap();
+// Scoped to /admin/*
+#[middleware("/admin")]
+fn require_auth(req: &mut HTTPRequest) {
+    // reject unauthenticated requests
+}
+
+// Response middleware
+#[middleware]
+fn add_cors(res: &mut Response) {
+    res.set_cors_origin("*");
+}
 ```
 
-## API Overview
+---
 
-### ServerConfig
+## Error Pages
+```rust
+use sunweb::{error_page, HTTPRequest, HtmlResponse, TextResponse};
 
-Configure your web server:
+#[error_page(404)]
+fn not_found(req: HTTPRequest) -> HtmlResponse {
+    HtmlResponse::ok("404 — Page Not Found")
+}
 
-- ```new(host: [u8; 4], port: u16)``` - Create new configuration
-- ```add_cert(private_key: String, cert: String)``` - Enable HTTPS
-- ```set_base_domain(domain: String)``` - Set the base domain
-
-### WebServer
-
-Main server instance:
-
-- ```new(config: ServerConfig)``` - Create new server
-- ```start()``` - Start listening for connections
-- ```add_route_file(route: &str, file: &str, domain: Option<&Domain>)``` - Add file route
-- ```add_static_route(route: &str, folder: &str, domain: Option<&Domain>)``` - Add static folder
-- ```add_custom_route(route: &str, handler: Fn, domain: Option<&Domain>)``` - Add custom handler
-- ```add_subdomain_router(domain: &Domain)``` - Enable subdomain routing
-- ```add_error_route(status_code: ResponseCodes, file: &str, domain: Option<&Domain>)``` - Add custom error-pages
-
-### Response
-
-HTTP response handling:
-
-- ```new(content: Arc<String>, code: Option<ResponseCodes>, protocol: Option<String>)``` - Create response
-- ```add_cookie(cookie: Cookie)``` - Add cookie to response
-- ```headers.add_header(key: &str, value: &str)``` - Add custom header
-
-### Request
-
-HTTP request information:
-
-- ```protocol: String``` - HTTP protocol version
-- ```method: String``` - HTTP method (GET, POST, etc.)
-- ```route: String``` - Requested route
-- ```values: HashMap<String, String>``` - Request headers
-- ```remote_addr: String``` - Client IP address
-- ```get_cookies()``` - Get all cookies
-- ```get_cookie(key: &str)``` - Get specific cookie
-
-## Project Structure
-
-```
-RustWebservice/
-├── src/
-│ ├── webserver/
-│ │ ├── client_handling/               # Client connection handling
-│ │ ├── cookie/                        # Cookie management
-│ │ ├── files/                         # Static file serving
-│ │ ├── logger/                        # Colored logging
-│ │ ├── middleware/                    # Middleware system
-│ │ ├── requests/                      # Request parsing
-│ │ ├── responses/                     # Response building
-│ │ └── server_config/                 # Server configuration
-│ └── lib.rs
-├── Cargo.toml
-└── README.md
+#[error_page(500)]
+fn server_error(req: HTTPRequest) -> HtmlResponse {
+    HtmlResponse::ok("500 — Something went wrong")
+}
 ```
 
-## Dependencies
+---
 
-* **chrono** - Date and time handling
-* **log** - Logging facade
-* **rustls** - TLS/SSL implementation
-* **rustls-pki-types** - PKI types for rustls
+## Templating *(feature = "templating")*
+```rust
+use sunweb::{get, render, HTTPRequest, Response, Context, Value};
+
+#[get("/")]
+async fn index(req: HTTPRequest) -> Response {
+    let mut ctx = Context::new();
+    ctx.insert("title".into(), Value::from("Home"));
+    ctx.insert("logged_in".into(), Value::Bool(true));
+    ctx.insert("users".into(), Value::List(vec![
+        [("user.name".into(), Value::from("Alice"))].into(),
+        [("user.name".into(), Value::from("Bob"))].into(),
+    ]));
+    render!("index.html", ctx)
+}
+```
+
+Template syntax:
+
+| Syntax | Description |
+|---|---|
+| `{{ name }}` | Variable interpolation |
+| `{% if condition %}` … `{% endif %}` | Conditional block |
+| `{% for item in list %}` … `{% endfor %}` | Loop |
+
+---
+
+## Logging
+```rust
+use sunweb::Logger;
+use log::LevelFilter;
+
+Logger::init(LevelFilter::Info);
+
+log::info!("Server starting");
+log::warn!("Something looks off");
+log::error!("Something broke");
+```
+
+| Level   | Color  |
+|---------|--------|
+| `error` | Red    |
+| `warn`  | Yellow |
+| `info`  | Blue   |
+| `debug` | Green  |
+| `trace` | Dimmed |
+
+---
+
+## Response Types
+
+| Type | Content-Type |
+|---|---|
+| `HtmlResponse` | `text/html` |
+| `JsonResponse` | `application/json` |
+| `PlainTextResponse` | `text/plain` |
+| `ImageResponse` | `image/*` |
+| `RedirectResponse` | — sets `Location` header |
+| `NoContentResponse` | `204 No Content` |
+| `Response` | fully manual |
+
+---
+
+## Workspace Structure
+```
+sunweb/
+├── sunweb/              # Main crate — public API & re-exports
+├── sunweb_core/         # HTTP types, server runtime, request/response
+├── sunweb_macros/       # Procedural macros (#[get], #[middleware], etc.)
+├── sunweb_templating/   # Optional templating engine
+└── example_app/         # Usage examples (not published)
+```
+
+---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Pull requests are welcome.
 
 ## Author
 
-Sunnickel
+[Sunnickel](https://github.com/Sunnickel)
 
 ## Links
 
@@ -229,4 +259,6 @@ Specifically, AI was used for:
 *   Documentation generation
 *   Content creation for this `README.md`
 
-All content has been reviewed and edited to ensure accuracy and clarity. While AI tools were utilized to accelerate the writing process, all information has been manually checked for correctness.
+All content has been reviewed and edited to ensure accuracy and clarity.
+While AI tools were utilized to accelerate the writing process,
+all information has been manually checked for correctness.

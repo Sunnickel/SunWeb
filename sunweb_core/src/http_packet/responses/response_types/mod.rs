@@ -1,23 +1,48 @@
-﻿use crate::http_packet::header::connection::ConnectionType;
-use crate::http_packet::header::content_types::image::ImageSubType;
-use crate::http_packet::responses::status_code::StatusCode;
-use crate::http_packet::responses::IntoResponse;
 use crate::Response;
+use crate::http_packet::header::connection::ConnectionType;
+use crate::http_packet::header::content_types::image::ImageSubType;
+use crate::http_packet::responses::IntoResponse;
+use crate::http_packet::responses::status_code::StatusCode;
 
 // ── Traits ────────────────────────────────────────────────────────────────────
 
+/// Implemented by response types that carry a text body.
+///
+/// Both `ok` and `status` accept anything that converts to a `String`,
+/// so you can pass `&str`, `String`, or `format!(...)` directly.
 pub trait TextResponse: IntoResponse + Sized {
+    /// Creates a `200 OK` response with the given text body.
     fn ok(data: impl Into<String>) -> Self;
+    /// Creates a response with the given text body and status code.
     fn status(data: impl Into<String>, status_code: StatusCode) -> Self;
 }
 
+/// Implemented by response types that carry a binary body.
 pub trait BinaryResponse: IntoResponse + Sized {
+    /// Creates a `200 OK` response with the given binary body.
     fn ok(data: Vec<u8>) -> Self;
+    /// Creates a response with the given binary body and status code.
     fn status(data: Vec<u8>, status_code: StatusCode) -> Self;
 }
 
 // ── HTML ──────────────────────────────────────────────────────────────────────
 
+/// A `Content-Type: text/html` response.
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::{get, HTTPRequest, HtmlResponse, TextResponse};
+///
+/// #[get("/")]
+/// fn index(req: HTTPRequest) -> HtmlResponse {
+///     HtmlResponse::ok("<h1>Hello</h1>")
+/// }
+///
+/// #[get("/error")]
+/// fn error(req: HTTPRequest) -> HtmlResponse {
+///     HtmlResponse::status("<h1>Gone</h1>", StatusCode::Gone)
+/// }
+/// ```
 pub struct HtmlResponse {
     data: String,
     status_code: StatusCode,
@@ -56,6 +81,20 @@ impl From<HtmlResponse> for Response {
 
 // ── JSON ──────────────────────────────────────────────────────────────────────
 
+/// A `Content-Type: application/json` response.
+///
+/// Pass a pre-serialized JSON string, or use `serde_json::to_string` to
+/// serialize a struct first.
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::{post, HTTPRequest, JsonResponse, TextResponse};
+///
+/// #[post("/echo")]
+/// fn echo(req: HTTPRequest) -> JsonResponse {
+///     JsonResponse::ok(r#"{"ok": true}"#)
+/// }
+/// ```
 pub struct JsonResponse {
     data: String,
     status_code: StatusCode,
@@ -94,6 +133,17 @@ impl From<JsonResponse> for Response {
 
 // ── Plain text ────────────────────────────────────────────────────────────────
 
+/// A `Content-Type: text/plain` response.
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::{get, HTTPRequest, PlainTextResponse, TextResponse};
+///
+/// #[get("/ping")]
+/// fn ping(req: HTTPRequest) -> PlainTextResponse {
+///     PlainTextResponse::ok("pong")
+/// }
+/// ```
 pub struct PlainTextResponse {
     data: String,
     status_code: StatusCode,
@@ -132,6 +182,28 @@ impl From<PlainTextResponse> for Response {
 
 // ── Image ─────────────────────────────────────────────────────────────────────
 
+/// A `Content-Type: image/*` response carrying raw binary image data.
+///
+/// `ok` and `status` default to `image/png`. Use [`ImageResponse::new`] to
+/// specify a different [`ImageSubType`].
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::{get, HTTPRequest, ImageResponse, BinaryResponse};
+/// use sunweb_core::http_packet::header::content_types::image::ImageSubType;
+///
+/// #[get("/logo")]
+/// fn logo(req: HTTPRequest) -> ImageResponse {
+///     let bytes = std::fs::read("logo.png").unwrap();
+///     ImageResponse::ok(bytes)
+/// }
+///
+/// #[get("/photo")]
+/// fn photo(req: HTTPRequest) -> ImageResponse {
+///     let bytes = std::fs::read("photo.jpg").unwrap();
+///     ImageResponse::new(bytes, ImageSubType::Jpeg, StatusCode::Ok)
+/// }
+/// ```
 pub struct ImageResponse {
     data: Vec<u8>,
     subtype: ImageSubType,
@@ -139,6 +211,7 @@ pub struct ImageResponse {
 }
 
 impl ImageResponse {
+    /// Creates an image response with an explicit [`ImageSubType`] and status code.
     pub fn new(data: Vec<u8>, subtype: ImageSubType, status_code: StatusCode) -> Self {
         Self {
             data,
@@ -175,18 +248,37 @@ impl From<ImageResponse> for Response {
 
 // ── Redirect ──────────────────────────────────────────────────────────────────
 
+/// A redirect response — either `307 Temporary` or `308 Permanent`.
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::{get, HTTPRequest, RedirectResponse};
+///
+/// #[get("/old")]
+/// fn old(req: HTTPRequest) -> RedirectResponse {
+///     RedirectResponse::permanent("/new")
+/// }
+///
+/// #[get("/dashboard")]
+/// fn dashboard(req: HTTPRequest) -> RedirectResponse {
+///     RedirectResponse::temporary("/login")
+/// }
+/// ```
 pub struct RedirectResponse {
     location: String,
     permanent: bool,
 }
 
 impl RedirectResponse {
+    /// `307 Temporary Redirect` to `location`.
     pub fn temporary(location: impl Into<String>) -> Self {
         Self {
             location: location.into(),
             permanent: false,
         }
     }
+
+    /// `308 Permanent Redirect` to `location`.
     pub fn permanent(location: impl Into<String>) -> Self {
         Self {
             location: location.into(),
@@ -209,6 +301,19 @@ impl From<RedirectResponse> for Response {
 
 // ── No Content ────────────────────────────────────────────────────────────────
 
+/// A `204 No Content` response with no body.
+///
+/// Typically used for `DELETE` or `OPTIONS` handlers that have nothing to return.
+///
+/// # Example
+/// ```rust,ignore
+/// use sunweb::{delete, HTTPRequest, NoContentResponse};
+///
+/// #[delete("/item")]
+/// fn remove(req: HTTPRequest) -> NoContentResponse {
+///     NoContentResponse
+/// }
+/// ```
 pub struct NoContentResponse;
 
 impl IntoResponse for NoContentResponse {

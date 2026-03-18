@@ -1,27 +1,39 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
+//! Core types, traits, and utilities for the SunWeb framework.
+//!
+//! You should not depend on this crate directly — use [`sunweb`] instead,
+//! which re-exports everything from here.
 
-pub mod http_packet;
 pub mod app;
+pub mod http_packet;
 mod logger;
 
 pub use crate::app::builder::AppBuilder;
+pub use crate::app::server::files::get_file_content;
+pub use crate::app::server::middleware::MiddlewareRegistration;
+pub use crate::app::server::routes::RouteRegistration;
 pub use crate::http_packet::header::http_method::HTTPMethod;
 pub use crate::http_packet::requests::HTTPRequest;
 pub use crate::http_packet::responses::*;
-pub use crate::app::server::routes::RouteRegistration;
-pub use crate::app::server::middleware::MiddlewareRegistration;
-pub use crate::app::server::files::get_file_content;
+pub use crate::logger::Logger;
 
-/// Parses `"host:port"` into `([u8; 4], u16)` for `AppBuilder::new`.
+/// Parses a `"host:port"` string into a raw `([u8; 4], u16)` address.
 ///
-/// Accepts dotted-decimal IPv4 (`"127.0.0.1:8080"`) or the special
-/// string `"0.0.0.0:port"`.
+/// Accepts dotted-decimal IPv4 addresses. Pass the result directly to
+/// [`AppBuilder::bind`].
 ///
 /// # Panics
 ///
-/// Panics with a clear message if the format is invalid.
+/// Panics with a descriptive message if the format is invalid — bad host
+/// segments, a non-numeric port, or a missing `:` separator.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use sunweb::parse_addr;
+///
+/// let addr = parse_addr("0.0.0.0:8080");  // ([0, 0, 0, 0], 8080)
+/// let addr = parse_addr("127.0.0.1:3000"); // ([127, 0, 0, 1], 3000)
+/// ```
 pub fn parse_addr(addr: &str) -> ([u8; 4], u16) {
     let (host_str, port_str) = addr
         .rsplit_once(':')

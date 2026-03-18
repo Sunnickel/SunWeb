@@ -1,7 +1,7 @@
 ﻿//! HTTP `Connection` header value.
 //!
 //! The only registered tokens in RFC 9110 are `close` and `keep-alive`;
-//! `upgrade` is used by the WebSocket handshake.  Any other token is
+//! `upgrade` is used by the WebSocket handshake. Any other token is
 //! preserved verbatim via [`ConnectionType::Other`](ConnectionType::Other).
 
 use std::fmt;
