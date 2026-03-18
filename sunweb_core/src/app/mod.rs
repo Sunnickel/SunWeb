@@ -12,6 +12,7 @@ use crate::http_packet::requests::HTTPRequest;
 use crate::logger::Logger;
 use crate::Response;
 use log::{error, info};
+use rustls::ServerConfig as RustlsConfig;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -22,25 +23,29 @@ pub struct WebServer {
     pub(crate) default_domain: String,
     pub(crate) middleware: Arc<Vec<Middleware>>,
     pub(crate) routes: Arc<Vec<Route>>,
+
+    http_addr: Option<([u8; 4], u16)>,
+    https_addr: Option<([u8; 4], u16, Arc<RustlsConfig>)>,
 }
 
 impl WebServer {
-    pub fn new(config: ServerConfig) -> WebServer {
+    pub fn new(
+        config: ServerConfig,
+        http_addr: Option<([u8; 4], u16)>,
+        https_addr: Option<([u8; 4], u16, Arc<RustlsConfig>)>,
+    ) -> WebServer {
         let default_domain = config.base_domain.clone();
-        let mut middlewares = Vec::new();
-
-        let logging_middleware = Middleware::new_request_response(None, Logger::log_request);
-        let error_page_middleware =
-            Middleware::new_response_async_with_routes(None, WebServer::error_page);
-
-        middlewares.push(logging_middleware);
-        middlewares.push(error_page_middleware);
-
+        let middlewares = vec![
+            Middleware::new_request_response(None, Logger::log_request),
+            Middleware::new_response_async_with_routes(None, WebServer::error_page),
+        ];
         WebServer {
             config,
             default_domain,
             middleware: Arc::from(middlewares),
             routes: Arc::new(Vec::new()),
+            http_addr,
+            https_addr,
         }
     }
 
@@ -61,27 +66,60 @@ impl WebServer {
     }
 
     async fn run(&self) {
-        let bind_addr = self.config.ip_as_string();
-        let listener = TcpListener::bind(&bind_addr).await.unwrap();
+        let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+        let https_port = self.https_addr.as_ref().map(|(_, port, _)| *port);
 
-        if self.config.using_https {
-            info!("Server running on https://{bind_addr}/");
-        } else {
-            info!("Server running on http://{bind_addr}/");
+        if let Some((host, port)) = self.http_addr {
+            let addr = format!("{}.{}.{}.{}:{}", host[0], host[1], host[2], host[3], port);
+            let listener = TcpListener::bind(&addr).await.unwrap();
+            info!("HTTP  listening on http://{addr}");
+
+            let middleware = Arc::clone(&self.middleware);
+            let routes = Arc::clone(&self.routes);
+            let domain = self.default_domain.clone();
+
+            tasks.push(tokio::spawn(async move {
+                Self::accept_loop(listener, domain, middleware, routes, None, https_port).await;
+            }));
         }
 
+        if let Some((host, port, tls)) = self.https_addr.clone() {
+            let addr = format!("{}.{}.{}.{}:{}", host[0], host[1], host[2], host[3], port);
+            let listener = TcpListener::bind(&addr).await.unwrap();
+            info!("HTTPS listening on https://{addr}");
+
+            let middleware = Arc::clone(&self.middleware);
+            let routes = Arc::clone(&self.routes);
+            let domain = self.default_domain.clone();
+
+            tasks.push(tokio::spawn(async move {
+                Self::accept_loop(listener, domain, middleware, routes, Some(tls), None).await;
+            }));
+        }
+
+        assert!(!tasks.is_empty(), "No listeners configured");
+        futures::future::join_all(tasks).await;
+    }
+
+    async fn accept_loop(
+        listener: TcpListener,
+        default_domain: String,
+        middleware: Arc<Vec<Middleware>>,
+        routes: Arc<Vec<Route>>,
+        tls_config: Option<Arc<RustlsConfig>>,
+        https_port: Option<u16>,
+    ) {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
-                    let middleware = Arc::clone(&self.middleware);
-                    let routes = Arc::clone(&self.routes);
-                    let default_domain = self.default_domain.clone();
-                    let tls_config = self.config.tls_config.clone();
+                    let middleware = Arc::clone(&middleware);
+                    let routes = Arc::clone(&routes);
+                    let domain = default_domain.clone();
+                    let tls = tls_config.clone();
 
                     tokio::spawn(async move {
                         let Some(mut client) =
-                            Client::new(stream, default_domain, middleware, routes, tls_config)
-                                .await
+                            Client::new(stream, domain, middleware, routes, tls, https_port).await
                         else {
                             return;
                         };
@@ -89,11 +127,7 @@ impl WebServer {
                         loop {
                             match client.handle().await {
                                 Some(ConnectionType::KeepAlive) => continue,
-                                Some(ConnectionType::Close) | None => break,
-                                Some(other) => {
-                                    error!("Unexpected connection type: {other}");
-                                    break;
-                                }
+                                _ => break,
                             }
                         }
                     });

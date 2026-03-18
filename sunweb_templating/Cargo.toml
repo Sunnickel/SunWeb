@@ -1,0 +1,8 @@
+[package]
+name = "sunweb_templating"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+sunweb_core = { path = "../sunweb_core", version = "0.1.0" }

@@ -52,6 +52,8 @@ pub(crate) struct Client {
     default_domain: String,
     middleware: Arc<Vec<Middleware>>,
     routes: Arc<Vec<Route>>,
+    is_https: bool,
+    https_port: Option<u16>,
 }
 
 impl Client {
@@ -61,15 +63,25 @@ impl Client {
         middleware: Arc<Vec<Middleware>>,
         routes: Arc<Vec<Route>>,
         tls_config: Option<Arc<ServerConfig>>,
+        https_port: Option<u16>,  // NEW
     ) -> Option<Self> {
-        let stream = if let Some(tls_cfg) = tls_config {
-            let acceptor = TlsAcceptor::from(tls_cfg);
-            match acceptor.accept(stream).await {
-                Ok(tls_stream) => Stream::Tls(tls_stream),
-                Err(e) => {
-                    warn!("TLS handshake failed: {e}");
-                    return None;
+        let mut buf = [0u8; 3];
+        stream.peek(&mut buf).await.expect("Couldn't peek stream");
+
+        let is_tls = buf[0] == 0x16 && buf[1] == 0x03;
+
+        let stream = if is_tls {
+            if let Some(tls_cfg) = tls_config {
+                let acceptor = TlsAcceptor::from(tls_cfg);
+                match acceptor.accept(stream).await {
+                    Ok(tls_stream) => Stream::Tls(tls_stream),
+                    Err(e) => {
+                        warn!("TLS handshake failed: {e}");
+                        return None;
+                    }
                 }
+            } else {
+                return None;
             }
         } else {
             Stream::Plain(stream)
@@ -80,6 +92,8 @@ impl Client {
             default_domain,
             middleware,
             routes,
+            is_https: is_tls,
+            https_port,
         })
     }
 
@@ -94,23 +108,43 @@ impl Client {
             }
         };
 
+        if !self.is_https {
+            if let Some(https_port) = self.https_port {
+                let host = request.host()?; 
+                let bare_host = host.split(':').next().unwrap_or(&host);
+                let location = if https_port == 443 {
+                    format!("https://{}{}", bare_host, request.path())
+                } else {
+                    format!("https://{}:{}{}", bare_host, https_port, request.path())
+                };
+
+                let mut response = Response::new(StatusCode::MovedPermanently);
+                response.add_header("Location", &location);
+                self.send_response(response).await;
+                return None;
+            }
+        }
+
         let connection = request.message.headers.connection.clone();
         let modified_request = self.apply_request_middleware(request.clone()).await;
 
-        // For OPTIONS, skip routing and build a bare 204 for middleware to decorate
         let mut response = if *modified_request.method() == HTTPMethod::OPTIONS {
             Response::new(StatusCode::NoContent)
         } else {
             self.handle_routing(&modified_request).await
         };
 
-        response = self.apply_response_middleware(modified_request.clone(), response).await;
+        response = self
+            .apply_response_middleware(modified_request.clone(), response)
+            .await;
 
         if *modified_request.method() == HTTPMethod::OPTIONS
             && response.get_header("Access-Control-Allow-Origin").is_none()
         {
             response = self.handle_routing(&modified_request).await;
-            response = self.apply_response_middleware(modified_request, response).await;
+            response = self
+                .apply_response_middleware(modified_request, response)
+                .await;
         }
 
         self.send_response(response).await;

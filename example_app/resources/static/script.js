@@ -1,4 +1,4 @@
-﻿const BASE = 'https://localhost:8080';
+﻿const BASE = 'https://localhost';
 
 const tests = [
 	{ method: 'GET', path: '/hello',      expect: 200 },

@@ -4,33 +4,71 @@ use crate::app::server::routes::{Route, RouteRegistration};
 use crate::app::WebServer;
 use crate::http_packet::header::http_method::HTTPMethod;
 use crate::http_packet::responses::status_code::StatusCode;
+use crate::parse_addr;
 
 pub struct AppBuilder {
-    config: ServerConfig,
+    http_addr: Option<([u8; 4], u16)>,
+    https_config: Option<ServerConfig>,
+    domain: Option<String>,
 }
 
 impl AppBuilder {
-    pub fn new(host: [u8; 4], port: u16) -> Self {
+    pub fn new() -> Self {
         Self {
-            config: ServerConfig::new(host, port),
+            http_addr: None,
+            https_config: None,
+            domain: None,
         }
     }
 
-    /// Set the base domain
-    pub fn domain(mut self, domain: &str) -> Self {
-        self.config = self.config.set_base_domain(domain.to_string());
+    pub fn http(mut self, addr: &str) -> Self {
+        self.http_addr = Some(parse_addr(addr));
         self
     }
 
-    /// Add TLS certificate
+    pub fn https(mut self, addr: &str) -> Self {
+        let (host, port) = parse_addr(addr);
+        self.https_config = Some(ServerConfig::new(host, port));
+        self
+    }
+
     pub fn cert(mut self, key: &str, cert: &str) -> Self {
-        self.config = self.config.add_cert(key.to_string(), cert.to_string());
+        let cfg = self.https_config
+            .take()
+            .expect(".cert() called without .https()");
+        self.https_config = Some(cfg.add_cert(key.to_string(), cert.to_string()));
+        self
+    }
+
+    pub fn domain(mut self, domain: &str) -> Self {
+        self.domain = Some(domain.to_string());
         self
     }
 
     /// Build routes from inventory and start the server
     pub fn run(self) {
-        let mut server = WebServer::new(self.config);
+        let base_addr = self.https_config
+            .as_ref()
+            .map(|c| (c.host, c.port))
+            .or(self.http_addr)
+            .expect("At least one of .http() or .https() must be called");
+
+        let mut base_config = ServerConfig::new(base_addr.0, base_addr.1);
+        if let Some(domain) = self.domain {
+            base_config = base_config.set_base_domain(domain);
+        }
+        if let Some(ref https_cfg) = self.https_config {
+            if let Some(tls) = https_cfg.tls_config.clone() {
+                base_config.tls_config = Some(tls);
+                base_config.using_https = true;
+            }
+        }
+
+        let mut server = WebServer::new(
+            base_config,
+            self.http_addr,
+            self.https_config.map(|c| (c.host, c.port, c.tls_config.unwrap())),
+        );
 
         for route in inventory::iter::<RouteRegistration> {
             match route {

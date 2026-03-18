@@ -1,10 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream}, parse_macro_input, DeriveInput, ItemFn, LitInt,
-    LitStr,
-    Token,
-};
+use syn::{parse::{Parse, ParseStream}, parse_macro_input, DeriveInput, Expr, ItemFn, LitInt, LitStr, Token};
 
 struct StaticArgs {
     path: LitStr,
@@ -59,6 +55,21 @@ impl Parse for MiddlewareArgs {
                 route: Some(input.parse()?),
             })
         }
+    }
+}
+
+struct RenderInput {
+    template: Expr,
+    _comma: Token![,],
+    context: Expr,
+}
+impl Parse for RenderInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(RenderInput {
+            template: input.parse()?,
+            _comma: input.parse()?,
+            context: input.parse()?,
+        })
     }
 }
 
@@ -179,54 +190,8 @@ pub fn derive_app(item: TokenStream) -> TokenStream {
     let name = &input.ident;
     TokenStream::from(quote! {
         impl #name {
-            pub fn run(addr: &str) {
-                let (host, port) = {
-                    let (host_str, port_str) = addr
-                        .rsplit_once(':')
-                        .unwrap_or_else(|| panic!("Invalid addr `{}` — expected host:port", addr));
-
-                    let port: u16 = port_str
-                        .parse()
-                        .unwrap_or_else(|_| panic!("Invalid port `{}`", port_str));
-
-                    let parts: Vec<u8> = host_str
-                        .split('.')
-                        .map(|seg| seg.parse::<u8>()
-                            .unwrap_or_else(|_| panic!("Invalid host segment `{}`", seg)))
-                        .collect();
-
-                    match parts.as_slice() {
-                        [a, b, c, d] => ([*a, *b, *c, *d], port),
-                        _ => panic!("Host `{}` must be IPv4", host_str),
-                    }
-                };
-
-                sunweb::AppBuilder::new(host, port).run();
-            }
-
-            pub fn builder(addr: &str) -> AppBuilder{
-                let (host, port) = {
-                    let (host_str, port_str) = addr
-                        .rsplit_once(':')
-                        .unwrap_or_else(|| panic!("Invalid addr `{}` — expected host:port", addr));
-
-                    let port: u16 = port_str
-                        .parse()
-                        .unwrap_or_else(|_| panic!("Invalid port `{}`", port_str));
-
-                    let parts: Vec<u8> = host_str
-                        .split('.')
-                        .map(|seg| seg.parse::<u8>()
-                            .unwrap_or_else(|_| panic!("Invalid host segment `{}`", seg)))
-                        .collect();
-
-                    match parts.as_slice() {
-                        [a, b, c, d] => ([*a, *b, *c, *d], port),
-                        _ => panic!("Host `{}` must be IPv4", host_str),
-                    }
-                };
-
-                sunweb::AppBuilder::new(host, port)
+            pub fn builder() -> sunweb::AppBuilder {
+                sunweb::AppBuilder::new()
             }
         }
     })
@@ -296,6 +261,23 @@ pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {
             #registration
         }
     })
+}
+
+#[proc_macro]
+pub fn render(input: TokenStream) -> TokenStream {
+    let RenderInput { template, context, .. } =
+        syn::parse_macro_input!(input as RenderInput);
+
+    let expanded = quote! {
+        {
+            let __template: &str = #template.as_str();
+            let __context = &#context;
+
+            sunweb_templating::render_response(__template, __context)
+        }
+    };
+
+    expanded.into()
 }
 
 // ── shared helper ────────────────────────────────────────────────────────────

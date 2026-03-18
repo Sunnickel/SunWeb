@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = ["sunweb", "sunweb_core", "sunweb_macros", "example_app"]
+members = ["sunweb", "sunweb_core", "sunweb_macros", "example_app", "sunweb_templating"]
 
 [workspace.package]
 edition = "2024"

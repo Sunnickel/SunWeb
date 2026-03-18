@@ -9,11 +9,12 @@ struct MainApp;
 fn cors(req: &mut HTTPRequest, res: &mut Response) {
     if let Some(origin) = req.header("Origin") {
         res.set_cors_origin(&origin);
+
+        res.set_cors_methods(&["GET", "POST", "PUT", "DELETE", "OPTIONS"]);
+        res.set_cors_headers(&["Content-Type", "Authorization"]);
+        res.set_cors_max_age(3600);
+        res.set_cors_credentials(true);
     }
-    res.set_cors_methods(&["GET", "POST", "PUT", "DELETE", "OPTIONS"]);
-    res.set_cors_headers(&["Content-Type", "Authorization"]);
-    res.set_cors_max_age(3600);
-    res.set_cors_credentials(true);
 }
 
 #[middleware("/api")]
@@ -75,7 +76,9 @@ fn server_error(_: &HTTPRequest) -> HtmlResponse {
 }
 
 fn main() {
-    MainApp::builder("0.0.0.0:8080")
+    MainApp::builder()
+        .http("0.0.0.0:80")
+        .https("0.0.0.0:443")
         .cert(
             "./example_app/resources/cert/key.pem",
             "./example_app/resources/cert/cert.pem",

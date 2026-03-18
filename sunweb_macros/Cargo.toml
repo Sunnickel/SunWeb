@@ -13,3 +13,4 @@ proc-macro2.workspace = true
 inventory.workspace = true
 
 sunweb_core = { path = "../sunweb_core" }
+sunweb_templating = { path = "../sunweb_templating" }
