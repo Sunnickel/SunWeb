@@ -38,10 +38,56 @@ fn template(_: &HTTPRequest) -> HtmlResponse {
     let content = get_file_content(Path::new(
         "./example_app/resources/templates/template_test.html",
     ));
-    let mut context: Context = HashMap::new();
-    context.insert("testing".to_string(), "templating works!".into());
+    let mut ctx: Context = HashMap::new();
 
-    render!(content, context)
+    // ── Variables ──────────────────────────────────────────────────────────
+    ctx.insert("page_title".into(), Value::from("SunWeb Template Tester"));
+    ctx.insert("username".into(), Value::from("alice smith"));
+    ctx.insert("score".into(), Value::Num(42.0));
+    ctx.insert("negative".into(), Value::Num(-7.0));
+    ctx.insert("pi".into(), Value::Num(std::f64::consts::PI));
+    ctx.insert("empty_var".into(), Value::from(""));
+    ctx.insert("safe_html".into(), Value::from("<strong>bold</strong>"));
+    ctx.insert(
+        "unsafe_html".into(),
+        Value::from("<script>alert('xss')</script>"),
+    );
+
+    // ── If conditions ──────────────────────────────────────────────────────
+    ctx.insert("logged_in".into(), Value::Bool(true));
+    ctx.insert("is_admin".into(), Value::Bool(false));
+    ctx.insert("is_moderator".into(), Value::Bool(true));
+    ctx.insert("level".into(), Value::Num(5.0));
+
+    // ── For loop ───────────────────────────────────────────────────────────
+    ctx.insert(
+        "users".into(),
+        Value::List(vec![
+            [
+                ("name".into(), Value::from("Alice")),
+                ("role".into(), Value::from("Admin")),
+                ("active".into(), Value::Bool(true)),
+            ]
+            .into(),
+            [
+                ("name".into(), Value::from("Bob")),
+                ("role".into(), Value::from("Editor")),
+                ("active".into(), Value::Bool(false)),
+            ]
+            .into(),
+            [
+                ("name".into(), Value::from("Carol")),
+                ("role".into(), Value::from("Viewer")),
+                ("active".into(), Value::Bool(true)),
+            ]
+            .into(),
+        ]),
+    );
+
+    // Empty list — triggers {% else %} on for
+    ctx.insert("notifications".into(), Value::List(vec![]));
+
+    render!(content, ctx)
 }
 
 #[get("/hello")]
