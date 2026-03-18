@@ -7,5 +7,4 @@ license.workspace = true
 
 [dependencies]
 sunweb = { path = "../sunweb", version = "0.3.0", features = ["templating"] }
-tokio.workspace = true
 log.workspace = true

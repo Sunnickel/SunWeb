@@ -15,8 +15,6 @@ proc-macro = true
 syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true
-inventory.workspace = true
-sunweb_core.workspace = true
 sunweb_templating = { workspace = true, optional = true }
 
 [features]
