@@ -1,0 +1,12 @@
+[package]
+name = "sunweb_templating"
+description = "Templating engine for the SunWeb framework."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+sunweb_core.workspace = true

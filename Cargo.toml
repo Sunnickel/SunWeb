@@ -1,23 +1,24 @@
-[package]
-name = "sunweb"
-version = "0.2.1"
+[workspace]
+resolver = "2"
+members = ["sunweb", "sunweb_core", "sunweb_macros", "example_app", "sunweb_templating"]
+
+[workspace.package]
 edition = "2024"
-authors = ["Sunnickel"]
-categories = ["web-programming::http-server", "web-programming"]
-description = "A small lightweight rust webframework."
-homepage = "https://github.com/Sunnickel/SunWeb"
-repository = "https://github.com/Sunnickel/SunWeb"
-readme = "README.md"
+version = "0.3.0"
 license = "MIT"
-keywords = ["web", "http", "server"]
+authors = ["Sunnickel"]
+repository = "https://github.com/Sunnickel/SunWeb"
+homepage = "https://github.com/Sunnickel/SunWeb"
 
-[dependencies]
-chrono = "0.4.42"
-log = "0.4.28"
-rustls = "0.23.32"
-rustls-pki-types = "1.12.0"
-rustls-native-certs = "0.8.1"
-serde_json = "1.0.145"
+[workspace.dependencies]
+sunweb_core     = { path = "sunweb_core",     version = "0.3.0" }
+sunweb_macros   = { path = "sunweb_macros",   version = "0.3.0" }
+sunweb_templating = { path = "sunweb_templating", version = "0.3.0" }
 
-[dev-dependencies]
-tempfile = "3.23.0"
+# External
+syn       = { version = "2", features = ["full"] }
+quote     = "1"
+proc-macro2 = "1"
+inventory = "0.3"
+tokio     = { version = "1", features = ["full"] }
+log       = "0.4"

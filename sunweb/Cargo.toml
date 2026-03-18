@@ -1,0 +1,25 @@
+[package]
+name = "sunweb"
+description = "A small lightweight Rust web framework."
+keywords = ["web", "http", "server"]
+categories = ["web-programming::http-server", "web-programming"]
+readme = "../README.md"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+sunweb_core.workspace = true
+sunweb_macros.workspace = true
+sunweb_templating = { workspace = true, optional = true }
+inventory.workspace = true
+
+[features]
+default = []
+templating = ["dep:sunweb_templating", "sunweb_macros/templating"]
+
+[package.metadata.docs.rs]
+features = ["templating"]

@@ -1,0 +1,21 @@
+[package]
+name = "sunweb_macros"
+description = "Procedural macros for the SunWeb framework."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+sunweb_templating = { workspace = true, optional = true }
+
+[features]
+templating = ["dep:sunweb_templating"]
