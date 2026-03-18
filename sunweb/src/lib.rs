@@ -1,5 +1,3 @@
-#![doc = include_str!("../../README.md")]
-
 pub use sunweb_core::*;
 
 #[doc(inline)]
