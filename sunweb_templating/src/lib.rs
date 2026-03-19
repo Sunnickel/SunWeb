@@ -245,8 +245,7 @@ fn apply_filter(s: &str, filter: &Filter, already_safe: bool) -> (String, bool) 
                 (format!("{}...", t), already_safe)
             }
         }
-        Filter::Join(sep) => {
-            // join on a plain string is a no-op (list join happens in render)
+        Filter::Join(_) => {
             (s.to_string(), already_safe)
         }
     }
@@ -595,7 +594,7 @@ fn parse_for(tokens: &[Token]) -> (Node, usize) {
     let mut i = 1usize;
     let mut depth = 0usize;
     let mut else_pos: Option<usize> = None;
-    let mut end_pos: Option<usize> = None;
+    let end_pos: Option<usize>;
 
     loop {
         if i >= tokens.len() {

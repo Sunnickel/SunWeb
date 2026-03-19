@@ -29,6 +29,7 @@ pub struct WebServer {
     pub(crate) middleware: Arc<Vec<Middleware>>,
     pub(crate) routes: Arc<Vec<Route>>,
 
+    http2: bool,
     http_addr: Option<([u8; 4], u16)>,
     https_addr: Option<([u8; 4], u16, Arc<RustlsConfig>)>,
 }
@@ -41,6 +42,7 @@ impl WebServer {
     /// automatically. Called internally by [`AppBuilder::build`].
     pub fn new(
         config: ServerConfig,
+        http2: bool,
         http_addr: Option<([u8; 4], u16)>,
         https_addr: Option<([u8; 4], u16, Arc<RustlsConfig>)>,
     ) -> WebServer {
@@ -54,6 +56,7 @@ impl WebServer {
             default_domain,
             middleware: Arc::from(middlewares),
             routes: Arc::new(Vec::new()),
+            http2,
             http_addr,
             https_addr,
         }
@@ -87,6 +90,7 @@ impl WebServer {
     async fn run(&self) {
         let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
         let https_port = self.https_addr.as_ref().map(|(_, port, _)| *port);
+        let using_http2 = self.http2.clone();
 
         if let Some((host, port)) = self.http_addr {
             let addr = format!("{}.{}.{}.{}:{}", host[0], host[1], host[2], host[3], port);
@@ -98,7 +102,7 @@ impl WebServer {
             let domain = self.default_domain.clone();
 
             tasks.push(tokio::spawn(async move {
-                Self::accept_loop(listener, domain, middleware, routes, None, https_port).await;
+                Self::accept_loop(listener, domain, middleware, routes, None, https_port, false).await;
             }));
         }
 
@@ -112,7 +116,7 @@ impl WebServer {
             let domain = self.default_domain.clone();
 
             tasks.push(tokio::spawn(async move {
-                Self::accept_loop(listener, domain, middleware, routes, Some(tls), None).await;
+                Self::accept_loop(listener, domain, middleware, routes, Some(tls), None, using_http2).await;
             }));
         }
 
@@ -132,6 +136,7 @@ impl WebServer {
         routes: Arc<Vec<Route>>,
         tls_config: Option<Arc<RustlsConfig>>,
         https_port: Option<u16>,
+        http2: bool,
     ) {
         loop {
             match listener.accept().await {
@@ -143,7 +148,7 @@ impl WebServer {
 
                     tokio::spawn(async move {
                         let Some(mut client) =
-                            Client::new(stream, domain, middleware, routes, tls, https_port).await
+                            Client::new(stream, domain, middleware, routes, tls, https_port, http2).await
                         else {
                             return;
                         };

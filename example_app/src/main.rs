@@ -137,6 +137,7 @@ fn main() {
     Logger::init(log::LevelFilter::Info);
 
     MainApp::builder()
+        .http2()
         .http("0.0.0.0:80")
         .https("0.0.0.0:443")
         .cert(

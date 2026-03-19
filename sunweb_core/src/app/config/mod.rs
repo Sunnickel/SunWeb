@@ -84,7 +84,7 @@ impl ServerConfig {
     ///     .add_cert("private_key.pem".to_string(), "cert.pem".to_string())
     ///     .expect("Failed to add certificate");
     /// ```
-    pub fn add_cert(mut self, private_key_pem: String, cert_pem: String) -> Self {
+    pub fn add_cert(mut self, private_key_pem: String, cert_pem: String, http2: bool) -> Self {
         let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(cert_pem)
             .unwrap()
             .collect::<Result<Vec<_>, _>>();
@@ -101,7 +101,11 @@ impl ServerConfig {
             .map_err(|e| format!("Failed to create TLS config: {}", e))
             .unwrap();
 
-        tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        if http2 {
+            tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        } else {
+            tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        }
 
         self.tls_config = Some(Arc::new(tls_config));
         self.using_https = true;
