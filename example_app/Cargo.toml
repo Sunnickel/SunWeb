@@ -6,5 +6,5 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
-sunweb = { path = "../sunweb", version = "0.3.0", features = ["templating"] }
+sunweb = { path = "../sunweb", version = "0.4.0", features = ["templating"] }
 log.workspace = true

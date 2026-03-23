@@ -4,16 +4,16 @@ members = ["sunweb", "sunweb_core", "sunweb_macros", "example_app", "sunweb_temp
 
 [workspace.package]
 edition = "2024"
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 authors = ["Sunnickel"]
 repository = "https://github.com/Sunnickel/SunWeb"
 homepage = "https://github.com/Sunnickel/SunWeb"
 
 [workspace.dependencies]
-sunweb_core     = { path = "sunweb_core",     version = "0.3.0" }
-sunweb_macros   = { path = "sunweb_macros",   version = "0.3.0" }
-sunweb_templating = { path = "sunweb_templating", version = "0.3.0" }
+sunweb_core     = { path = "sunweb_core",     version = "0.4.0" }
+sunweb_macros   = { path = "sunweb_macros",   version = "0.4.0" }
+sunweb_templating = { path = "sunweb_templating", version = "0.4.0" }
 
 # External
 syn       = { version = "2", features = ["full"] }
