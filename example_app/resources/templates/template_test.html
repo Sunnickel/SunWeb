@@ -3,22 +3,238 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SunWeb Tester</title>
+    <title>{{ page_title }}</title>
     <link rel="stylesheet" href="static/styles.css">
 </head>
 <body>
 
 <header>
     <div class="header-inner">
-        <div>
-            <h1>SunWeb</h1>
-            <p class="subtitle">Template Tester — localhost:8080</p>
-        </div>
+        <h1>SunWeb</h1>
+        <p class="subtitle">Template Tester — localhost:8080</p>
     </div>
 </header>
 
 <main>
-    {{ testing }}
+
+    {# ═══════════════════════════════════════════════════════════
+    1. VARIABLES + FILTERS
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>1. Variables &amp; Filters</h2>
+
+        {# Plain variable #}
+        <p>Username (raw):        {{ username }}</p>
+
+        {# String filters #}
+        <p>upper:                 {{ username | upper }}</p>
+        <p>lower:                 {{ username | lower }}</p>
+        <p>capitalize:            {{ username | capitalize }}</p>
+        <p>trim:                  "{{ username | trim }}"</p>
+        <p>length:                {{ username | length }}</p>
+        <p>wordcount:             {{ username | wordcount }}</p>
+        <p>reverse:               {{ username | reverse }}</p>
+        <p>truncate(8):           {{ username | truncate(8) }}</p>
+        <p>replace(smith,Jones):  {{ username | replace("smith", "Jones") }}</p>
+
+        {# Chained filters #}
+        <p>upper + truncate(5):   {{ username | upper | truncate(5) }}</p>
+
+        {# Numeric filters #}
+        <p>score:                 {{ score }}</p>
+        <p>abs(negative):         {{ negative | abs }}</p>
+        <p>round(pi):             {{ pi | round }}</p>
+
+        {# default filter #}
+        <p>empty_var default:     "{{ empty_var | default("(nothing)") }}"</p>
+        <p>missing default:       "{{ does_not_exist | default("fallback") }}"</p>
+
+        {# Missing variable — renders empty #}
+        <p>missing (empty):       "{{ does_not_exist }}"</p>
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    2. HTML ESCAPING
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>2. HTML Escaping</h2>
+        <p>Auto-escaped:  {{ unsafe_html }}</p>
+        <p>| safe:        {{ safe_html | safe }}</p>
+        <p>| escape:      {{ safe_html | escape }}</p>
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    3. IF / ELIF / ELSE
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>3. If / Elif / Else</h2>
+
+        {# Basic true #}
+        {% if logged_in %}
+        <p>✓ logged_in = true</p>
+        {% endif %}
+
+        {# Basic false #}
+        {% if is_admin %}
+        <p>✗ should NOT appear</p>
+        {% endif %}
+
+        {# if / else #}
+        {% if is_admin %}
+        <p>Role: Admin</p>
+        {% else %}
+        <p>Role: not an admin</p>
+        {% endif %}
+
+        {# if / elif / else #}
+        {% if is_admin %}
+        <p>Access: full</p>
+        {% elif is_moderator %}
+        <p>Access: moderate</p>
+        {% else %}
+        <p>Access: read-only</p>
+        {% endif %}
+
+        {# Comparison operators #}
+        {% if level == 5 %}
+        <p>level == 5 ✓</p>
+        {% endif %}
+
+        {% if level != 99 %}
+        <p>level != 99 ✓</p>
+        {% endif %}
+
+        {% if level > 3 %}
+        <p>level &gt; 3 ✓</p>
+        {% endif %}
+
+        {% if level <= 5 %}
+        <p>level &lt;= 5 ✓</p>
+        {% endif %}
+
+        {# and / or / not #}
+        {% if logged_in and is_moderator %}
+        <p>logged_in AND is_moderator ✓</p>
+        {% endif %}
+
+        {% if is_admin or is_moderator %}
+        <p>is_admin OR is_moderator ✓</p>
+        {% endif %}
+
+        {% if not is_admin %}
+        <p>NOT is_admin ✓</p>
+        {% endif %}
+
+        {# Falsy empty string #}
+        {% if empty_var %}
+        <p>✗ empty_var should NOT be truthy</p>
+        {% else %}
+        <p>empty_var is falsy ✓</p>
+        {% endif %}
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    4. FOR LOOP + loop.* VARIABLES
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>4. For Loop</h2>
+        <table border="1" cellpadding="4">
+            <thead>
+            <tr>
+                <th>loop.index</th>
+                <th>loop.index0</th>
+                <th>loop.first</th>
+                <th>loop.last</th>
+                <th>loop.length</th>
+                <th>name</th>
+                <th>role</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ loop.index0 }}</td>
+                <td>{{ loop.first }}</td>
+                <td>{{ loop.last }}</td>
+                <td>{{ loop.length }}</td>
+                <td>{{ user.name }}</td>
+                <td>{{ user.role }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    5. IF INSIDE FOR (nested context)
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>5. If inside For</h2>
+        <ul>
+            {% for user in users %}
+            {% if user.active %}
+            <li>{{ user.name | capitalize }} is active</li>
+            {% else %}
+            <li>{{ user.name | capitalize }} is inactive</li>
+            {% endif %}
+            {% endfor %}
+        </ul>
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    6. FOR / ELSE (empty list fallback)
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>6. For / Else (empty list)</h2>
+        <ul>
+            {% for note in notifications %}
+            <li>{{ note.text }}</li>
+            {% else %}
+            <li><em>No notifications.</em></li>
+            {% endfor %}
+        </ul>
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    7. {% set %}
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>7. Set</h2>
+        {% set greeting = "Hello" %}
+        {% set count = 3 %}
+        {% set is_set = true %}
+        <p>greeting: {{ greeting }}</p>
+        <p>count:    {{ count }}</p>
+        {% if is_set %}
+        <p>is_set is truthy ✓</p>
+        {% endif %}
+
+        {# Set from another variable #}
+        {% set display_name = username %}
+        <p>display_name (copy of username): {{ display_name | capitalize }}</p>
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    8. {% raw %} ... {% endraw %}
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>8. Raw Block</h2>
+        <p>The following is rendered literally without processing:</p>
+        <pre>{% raw %}{{ username }} {% if logged_in %}yes{% endif %} {# comment #}{% endraw %}</pre>
+    </section>
+
+    {# ═══════════════════════════════════════════════════════════
+    9. WHITESPACE CONTROL  {%- ... -%}
+    ═══════════════════════════════════════════════════════════ #}
+    <section>
+        <h2>9. Whitespace Control</h2>
+        <p>No extra whitespace between these words:
+            {%- if logged_in -%}
+            LOGGED_IN
+            {%- endif -%}
+            !</p>
+    </section>
 </main>
 </body>
 </html>

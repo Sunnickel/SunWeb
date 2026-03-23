@@ -4,7 +4,7 @@ members = ["sunweb", "sunweb_core", "sunweb_macros", "example_app", "sunweb_temp
 
 [workspace.package]
 edition = "2024"
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 authors = ["Sunnickel"]
 repository = "https://github.com/Sunnickel/SunWeb"

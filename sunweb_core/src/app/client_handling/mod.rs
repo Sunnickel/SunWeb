@@ -1,3 +1,5 @@
+pub mod h2;
+
 use crate::app::server::files::get_static_file_content;
 use crate::app::server::middleware::{Middleware, MiddlewareFn};
 use crate::app::server::proxy::{Proxy, ProxySchema};
@@ -5,8 +7,8 @@ use crate::app::server::routes::Route;
 use crate::app::server::routes::RouteType;
 use crate::http_packet::header::connection::ConnectionType;
 use crate::http_packet::header::content_types::ContentType;
-use crate::http_packet::responses::Response;
 use crate::http_packet::responses::status_code::StatusCode;
+use crate::http_packet::responses::Response;
 use crate::{HTTPMethod, HTTPRequest};
 use log::{error, warn};
 use rustls::ServerConfig;
@@ -16,9 +18,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
-
+use tokio_rustls::TlsAcceptor;
 /// Abstracts over plain TCP and TLS streams so the rest of the client
 /// handling code doesn't need to branch on the transport.
 enum Stream {
@@ -47,6 +48,13 @@ impl Stream {
             Stream::Tls(s) => s.flush().await,
         }
     }
+
+    async fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Stream::Plain(s) => s.read_exact(buf).await,
+            Stream::Tls(s) => s.read_exact(buf).await,
+        }
+    }
 }
 
 /// Represents a single connected client and drives the request/response
@@ -64,6 +72,7 @@ pub(crate) struct Client {
     is_https: bool,
     /// The HTTPS port, used to build HTTP→HTTPS redirect URLs.
     https_port: Option<u16>,
+    http2: bool,
 }
 
 impl Client {
@@ -76,12 +85,12 @@ impl Client {
         routes: Arc<Vec<Route>>,
         tls_config: Option<Arc<ServerConfig>>,
         https_port: Option<u16>,
-    ) -> Option<Self> {
+        http2: bool,
+    ) -> Option<Client> {
         let mut buf = [0u8; 3];
         stream.peek(&mut buf).await.expect("Couldn't peek stream");
 
         let is_tls = buf[0] == 0x16 && buf[1] == 0x03;
-
         let stream = if is_tls {
             if let Some(tls_cfg) = tls_config {
                 let acceptor = TlsAcceptor::from(tls_cfg);
@@ -106,13 +115,46 @@ impl Client {
             routes,
             is_https: is_tls,
             https_port,
+            http2,
         })
+    }
+
+    /// Dispatches the connection to the correct HTTP version handler.
+    ///
+    /// For TLS connections, ALPN is checked first. If the client negotiated
+    /// `h2`, we log that HTTP/2 is not yet implemented and close the
+    /// connection gracefully. Everything else (including plain HTTP) falls
+    /// through to [`Client::handle_http1`].
+    ///
+    /// Returns the `Connection` header value, or `None` to close.
+    pub(crate) async fn handle(&mut self) -> Option<ConnectionType> {
+        if self.http2 {
+            if let Stream::Tls(ref tls_stream) = self.stream {
+                let alpn = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
+
+                match alpn.as_deref() {
+                    Some(b"h2") => {
+                        self.handle_http2().await.expect("TODO: panic message");
+                        return None;
+                    }
+                    Some(b"http/1.1") | None => {}
+                    Some(other) => {
+                        warn!(
+                            "Unknown ALPN protocol {:?}; falling back to HTTP/1.1",
+                            String::from_utf8_lossy(other)
+                        );
+                    }
+                }
+            }
+        }
+
+        self.handle_http1().await
     }
 
     /// Reads one request, runs the middleware chain, dispatches it, and writes
     /// the response. Returns the `Connection` header value so the caller can
     /// decide whether to keep the connection alive.
-    pub(crate) async fn handle(&mut self) -> Option<ConnectionType> {
+    async fn handle_http1(&mut self) -> Option<ConnectionType> {
         let raw_request = self.read_request().await?;
 
         let request = match HTTPRequest::parse(raw_request.as_ref()) {
@@ -309,20 +351,37 @@ impl Client {
             return tokio::task::spawn_blocking(move || {
                 get_proxy_response(&prefix, &external, &request_clone)
             })
-            .await
-            .unwrap_or_else(|_| Response::internal_error());
+                .await
+                .unwrap_or_else(|_| Response::internal_error());
         }
 
-        // 3. Exact match on path + method
-        if let Some(route) = domain_routes
+        // 3. Standard routes — exact matches first, then :param patterns
+        let standard_routes: Vec<&Route> = domain_routes
             .iter()
-            .find(|r| r.route_type == RouteType::Standard && r.path == path)
-        {
+            .copied()
+            .filter(|r| r.route_type == RouteType::Standard)
+            .collect();
+
+        let matched = standard_routes
+            .iter()
+            .find(|r| r.path == path)
+            .map(|r| (*r, vec![]))
+            .or_else(|| {
+                standard_routes
+                    .iter()
+                    .find_map(|r| match_path(&r.path, path).map(|params| (*r, params)))
+            });
+
+        if let Some((route, params)) = matched {
             if route.method != *method {
                 return Response::method_not_allowed();
             }
             if let Some(f) = &route.handler {
-                return f(request).await;
+                let mut req_with_params = request.clone();
+                for (key, value) in params {
+                    req_with_params.set_path_param(key.into(), value);
+                }
+                return f(&req_with_params).await;
             }
         }
 
@@ -391,4 +450,27 @@ fn get_proxy_response(prefix: &str, external: &str, request: &HTTPRequest) -> Re
         }
         None => Response::bad_gateway(),
     }
+}
+
+/// Checks whether a route pattern matches a request path, and if so returns
+/// the extracted param values keyed by their name.
+/// e.g. pattern "/:id/posts/:page" against "/42/posts/3" → [("id","42"),("page","3")]
+fn match_path<'a>(pattern: &'a str, path: &'a str) -> Option<Vec<(&'a str, String)>> {
+    let pattern_segs: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+    let path_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+    if pattern_segs.len() != path_segs.len() {
+        return None;
+    }
+
+    let mut params = Vec::new();
+    for (pat, val) in pattern_segs.iter().zip(path_segs.iter()) {
+        if let Some(name) = pat.strip_prefix(':') {
+            params.push((name, val.to_string()));
+        } else if pat != val {
+            return None;
+        }
+    }
+
+    Some(params)
 }

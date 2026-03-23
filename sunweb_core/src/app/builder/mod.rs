@@ -1,9 +1,9 @@
-use crate::app::WebServer;
 use crate::app::config::ServerConfig;
 use crate::app::server::middleware::Middleware;
 use crate::app::server::routes::Route;
+use crate::app::WebServer;
 use crate::status_code::StatusCode;
-use crate::{HTTPMethod, MiddlewareRegistration, RouteRegistration, parse_addr};
+use crate::{parse_addr, HTTPMethod, MiddlewareRegistration, RouteRegistration};
 
 /// Fluent builder for configuring and starting a [`WebServer`].
 ///
@@ -37,6 +37,7 @@ pub struct AppBuilder {
     http_addr: Option<([u8; 4], u16)>,
     https_config: Option<ServerConfig>,
     domain: Option<String>,
+    http2: bool,
 }
 
 impl Default for AppBuilder {
@@ -52,6 +53,7 @@ impl AppBuilder {
             http_addr: None,
             https_config: None,
             domain: None,
+            http2: false,
         }
     }
 
@@ -71,16 +73,19 @@ impl AppBuilder {
         self
     }
 
+    pub fn http2(mut self) -> Self {
+        self.http2 = true;
+        self
+    }
+
     /// Loads the TLS private key and certificate for the HTTPS listener.
     ///
     /// # Panics
     /// Panics if called before `.https()`.
     pub fn cert(mut self, key: &str, cert: &str) -> Self {
-        let cfg = self
-            .https_config
-            .take()
-            .expect(".cert() called without .https()");
-        self.https_config = Some(cfg.add_cert(key.to_string(), cert.to_string()));
+        if let Some(cfg) = self.https_config.take() {
+            self.https_config = Some(cfg.add_cert(key.to_string(), cert.to_string(), self.http2));
+        }
         self
     }
 
@@ -96,12 +101,34 @@ impl AppBuilder {
     /// # Panics
     /// Panics if neither `.http()` nor `.https()` was called.
     pub fn run(self) {
+        // Validate: at least one listener must be configured
+        assert!(
+            self.http_addr.is_some() || self.https_config.is_some(),
+            "At least one of .http() or .https() must be called before .run()"
+        );
+
+        // Validate: .https() is required if .cert() or .http2() was used
+        if self.http2 {
+            assert!(
+                self.https_config.is_some(),
+                ".http2() requires .https() to be configured"
+            );
+        }
+
+        // Validate: .https() requires .cert()
+        if let Some(ref https_cfg) = self.https_config {
+            assert!(
+                https_cfg.tls_config.is_some(),
+                ".https() was called but no certificate was provided — call .cert() before .run()"
+            );
+        }
+
         let base_addr = self
             .https_config
             .as_ref()
             .map(|c| (c.host, c.port))
             .or(self.http_addr)
-            .expect("At least one of .http() or .https() must be called");
+            .unwrap(); // safe: already asserted above
 
         let mut base_config = ServerConfig::new(base_addr.0, base_addr.1);
         if let Some(domain) = self.domain {
@@ -116,6 +143,7 @@ impl AppBuilder {
 
         let mut server = WebServer::new(
             base_config,
+            self.http2,
             self.http_addr,
             self.https_config
                 .map(|c| (c.host, c.port, c.tls_config.unwrap())),

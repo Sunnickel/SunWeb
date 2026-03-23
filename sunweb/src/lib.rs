@@ -1,7 +1,7 @@
 pub use sunweb_core::*;
 
 #[doc(inline)]
-pub use sunweb_core::{AppBuilder, HTTPMethod, HTTPRequest, Response, parse_addr};
+pub use sunweb_core::{parse_addr, AppBuilder, HTTPMethod, HTTPRequest, Response};
 
 #[doc(inline)]
 pub use sunweb_core::{MiddlewareRegistration, RouteRegistration};
@@ -18,11 +18,12 @@ pub use sunweb_macros::render;
 
 #[doc(inline)]
 pub use sunweb_macros::{
-    App, delete, error_page, get, head, middleware, options, patch, post, proxy, put, static_files,
+    delete, error_page, get, head, middleware, options, param, patch, post, proxy, put, static_files,
+    App,
 };
 
 #[cfg(feature = "templating")]
 #[doc(inline)]
-pub use sunweb_templating::{Context, Value, render_response};
+pub use sunweb_templating::{render_response, Context, Value};
 
 pub use inventory;
