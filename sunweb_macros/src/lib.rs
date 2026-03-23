@@ -6,9 +6,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    DeriveInput, Expr, ItemFn, LitInt, LitStr, Token,
-    parse::{Parse, ParseStream},
-    parse_macro_input,
+    parse::{Parse, ParseStream}, parse_macro_input, DeriveInput, Expr, ItemFn, LitInt,
+    LitStr,
+    Token,
 };
 
 struct StaticArgs {
@@ -84,138 +84,58 @@ impl Parse for RenderInput {
     }
 }
 
+struct ParamArgs {
+    name: LitStr,
+    _comma: Token![,],
+    ty: syn::Type,
+}
+impl Parse for ParamArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            name: input.parse()?,
+            _comma: input.parse()?,
+            ty: input.parse()?,
+        })
+    }
+}
+
 // ── per-method shorthand macros ──────────────────────────────────────────────
 
-/// Registers a function as a `GET` route handler.
-///
-/// The function can be sync or async and must take an [`HTTPRequest`] and
-/// return any type that implements `Into<Response>`.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{get, HTTPRequest, Response};
-///
-/// #[get("/hello")]
-/// async fn hello(req: HTTPRequest) -> Response {
-///     Response::text("Hello, world!")
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn get(attr: TokenStream, item: TokenStream) -> TokenStream {
     method_route("GET", attr, item)
 }
 
-/// Registers a function as a `POST` route handler.
-///
-/// The function can be sync or async and must take an [`HTTPRequest`] and
-/// return any type that implements `Into<Response>`.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{post, HTTPRequest, Response};
-///
-/// #[post("/submit")]
-/// async fn submit(req: HTTPRequest) -> Response {
-///     Response::text("Received!")
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn post(attr: TokenStream, item: TokenStream) -> TokenStream {
     method_route("POST", attr, item)
 }
 
-/// Registers a function as a `PUT` route handler.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{put, HTTPRequest, Response};
-///
-/// #[put("/item")]
-/// async fn update_item(req: HTTPRequest) -> Response {
-///     Response::text("Updated!")
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn put(attr: TokenStream, item: TokenStream) -> TokenStream {
     method_route("PUT", attr, item)
 }
 
-/// Registers a function as a `DELETE` route handler.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{delete, HTTPRequest, Response};
-///
-/// #[delete("/item")]
-/// async fn remove_item(req: HTTPRequest) -> Response {
-///     Response::text("Deleted!")
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn delete(attr: TokenStream, item: TokenStream) -> TokenStream {
     method_route("DELETE", attr, item)
 }
 
-/// Registers a function as a `PATCH` route handler.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{patch, HTTPRequest, Response};
-///
-/// #[patch("/item")]
-/// async fn patch_item(req: HTTPRequest) -> Response {
-///     Response::text("Patched!")
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn patch(attr: TokenStream, item: TokenStream) -> TokenStream {
     method_route("PATCH", attr, item)
 }
 
-/// Registers a function as a `HEAD` route handler.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{head, HTTPRequest, Response};
-///
-/// #[head("/ping")]
-/// fn ping(req: HTTPRequest) -> Response {
-///     Response::no_content()
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn head(attr: TokenStream, item: TokenStream) -> TokenStream {
     method_route("HEAD", attr, item)
 }
 
-/// Registers a function as an `OPTIONS` route handler.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{options, HTTPRequest, Response};
-///
-/// #[options("/resource")]
-/// fn preflight(req: HTTPRequest) -> Response {
-///     Response::no_content()
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn options(attr: TokenStream, item: TokenStream) -> TokenStream {
     method_route("OPTIONS", attr, item)
 }
 
-/// Serves all files inside a folder under a URL path prefix.
-///
-/// Takes a URL path prefix and a local folder path. Any file inside the
-/// folder is served at `<path>/<filename>`.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::static_files;
-///
-/// #[static_files("/assets", "./public")]
-/// struct Assets;
-/// ```
 #[proc_macro_attribute]
 pub fn static_files(attr: TokenStream, item: TokenStream) -> TokenStream {
     let StaticArgs { path, folder, .. } = parse_macro_input!(attr as StaticArgs);
@@ -229,25 +149,6 @@ pub fn static_files(attr: TokenStream, item: TokenStream) -> TokenStream {
     })
 }
 
-/// Registers a custom error page handler for a specific HTTP status code.
-///
-/// The handler receives the original [`HTTPRequest`] and must return a
-/// [`Response`]. Both sync and async functions are supported.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{error_page, HTTPRequest, Response};
-///
-/// #[error_page(404)]
-/// fn not_found(req: HTTPRequest) -> Response {
-///     Response::html("<h1>404 — Page Not Found</h1>")
-/// }
-///
-/// #[error_page(500)]
-/// async fn server_error(req: HTTPRequest) -> Response {
-///     Response::html("<h1>500 — Internal Server Error</h1>")
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn error_page(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ErrorArgs { status_code } = parse_macro_input!(attr as ErrorArgs);
@@ -275,18 +176,6 @@ pub fn error_page(attr: TokenStream, item: TokenStream) -> TokenStream {
     })
 }
 
-/// Registers a reverse-proxy route that forwards requests to an external URL.
-///
-/// All requests to `path` (and any sub-paths) are forwarded to `external`,
-/// with the response passed back to the client transparently.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::proxy;
-///
-/// #[proxy("/api", "http://localhost:3000")]
-/// struct ApiProxy;
-/// ```
 #[proc_macro_attribute]
 pub fn proxy(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ProxyArgs { path, external, .. } = parse_macro_input!(attr as ProxyArgs);
@@ -299,29 +188,64 @@ pub fn proxy(attr: TokenStream, item: TokenStream) -> TokenStream {
     })
 }
 
-/// Derive macro that wires up your app struct with a [`AppBuilder`] entry point.
-///
-/// Adds a `builder()` associated function to the annotated struct, which
-/// returns a configured [`AppBuilder`] ready to call `.run()` on.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::*;
-///
-/// #[derive(App)]
-/// struct MainApp;
-///
-/// fn main() {
-///     MainApp::builder()
-///         .http("0.0.0.0:80")
-///         .https("0.0.0.0:443")
-///         .cert(
-///             "./example_app/resources/cert/key.pem",
-///             "./example_app/resources/cert/cert.pem",
-///         )
-///         .run();
-/// }
-/// ```
+#[proc_macro_attribute]
+pub fn param(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let ParamArgs { name, ty, .. } = parse_macro_input!(attr as ParamArgs);
+    let mut func = parse_macro_input!(item as ItemFn);
+
+    let var_ident = syn::Ident::new(&name.value(), name.span());
+
+    let parse_stmt: syn::Stmt = syn::parse_quote! {
+            let #var_ident: #ty = match req.param(#name).map(|s| s.parse::<#ty>()) {
+                Some(Ok(v)) => v,
+                _ => return ::std::convert::Into::<sunweb::HtmlResponse>::into(
+                    sunweb::HtmlResponse::status("", 400.into())
+                ),
+            };
+        };
+
+    // Collect already-injected param idents by scanning stmts.
+    let mut accumulated: Vec<(String, syn::Ident)> = Vec::new();
+    for stmt in &func.block.stmts {
+        let s = quote!(#stmt).to_string();
+        if s.contains("req . param (") && !s.contains("__sunweb_params") {
+            if let syn::Stmt::Local(local) = stmt {
+                if let syn::Pat::Type(pt) = &local.pat {
+                    if let syn::Pat::Ident(pi) = &*pt.pat {
+                        let expr_str = quote!(#local).to_string();
+                        if let Some(start) = expr_str.find("req . param (\"") {
+                            let rest = &expr_str[start + 14..];
+                            if let Some(end) = rest.find('"') {
+                                let param_name = rest[..end].to_string();
+                                accumulated.push((param_name, pi.ident.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    accumulated.push((name.value(), var_ident.clone()));
+
+    let entries = accumulated.iter().map(|(n, i)| {
+        quote! { (#n, sunweb::Value::from(#i as i64)) }
+    });
+
+    let params_stmt: syn::Stmt = syn::parse_quote! {
+        let __sunweb_params: &[(&str, sunweb::Value)] = &[ #(#entries),* ];
+    };
+
+    func.block
+        .stmts
+        .retain(|s| !quote!(#s).to_string().contains("__sunweb_params"));
+
+    func.block.stmts.insert(0, params_stmt);
+    func.block.stmts.insert(0, parse_stmt);
+
+    TokenStream::from(quote! { #func })
+}
+
 #[proc_macro_derive(App)]
 pub fn derive_app(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
@@ -335,38 +259,6 @@ pub fn derive_app(item: TokenStream) -> TokenStream {
     })
 }
 
-/// Registers a middleware function that runs before or after route handlers.
-///
-/// With no argument, the middleware applies to **all** routes. Pass a path
-/// prefix string to scope it to a specific route subtree.
-///
-/// The function signature determines the middleware type:
-/// - `fn(&mut HTTPRequest)` — request middleware, runs before the handler
-/// - `fn(&mut Response)` — response middleware, runs after the handler
-/// - `fn(&mut HTTPRequest, &mut Response)` — runs at both stages
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{middleware, HTTPRequest, Response};
-///
-/// // Applies to every route
-/// #[middleware]
-/// fn log_request(req: &mut HTTPRequest) {
-///     println!("→ {}", req.path());
-/// }
-///
-/// // Applies only to routes under /api
-/// #[middleware("/api")]
-/// fn require_auth(req: &mut HTTPRequest) {
-///     // reject unauthenticated requests
-/// }
-///
-/// // Response middleware
-/// #[middleware]
-/// fn add_cors(res: &mut Response) {
-///     res.set_header("Access-Control-Allow-Origin", "*");
-/// }
-/// ```
 #[proc_macro_attribute]
 pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {
     let MiddlewareArgs { route } = parse_macro_input!(attr as MiddlewareArgs);
@@ -424,39 +316,33 @@ pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {
     })
 }
 
-/// Renders a template with a context and returns a [`Response`].
-///
-/// Takes a template name (relative to your configured template directory)
-/// and a [`Context`] populated with template variables.
-///
-/// This macro is only available with the **`templating`** feature enabled.
-///
-/// # Example
-/// ```rust,ignore
-/// use sunweb::{get, render, HTTPRequest, Response, Context};
-///
-/// #[get("/")]
-/// async fn index(req: HTTPRequest) -> Response {
-///     let mut ctx = Context::new();
-///     ctx.insert("title", "Home");
-///     ctx.insert("user", "Alice");
-///     render!("index.html", ctx)
-/// }
-/// ```
 #[cfg(feature = "templating")]
 #[proc_macro]
 pub fn render(input: TokenStream) -> TokenStream {
-    let RenderInput {
-        template, context, ..
-    } = syn::parse_macro_input!(input as RenderInput);
-
-    let expanded = quote! {
-        {
-            let __template: &str = #template.as_str();
-            let __context = &#context;
-
-            sunweb::render_response(__template, __context)
+    let (template, explicit_ctx) = {
+        let input2 = input.clone();
+        if let Ok(r) = syn::parse::<RenderInput>(input2) {
+            (r.template, Some(r.context))
+        } else {
+            let template: Expr = syn::parse(input).expect("render! expects a template expression");
+            (template, None)
         }
+    };
+
+    let expanded = match explicit_ctx {
+        Some(ctx) => quote! {{
+            for (k, v) in __sunweb_params {
+                #ctx.insert((*k).into(), v.clone());
+            }
+            sunweb::render_response(#template.as_str(), &#ctx)
+        }},
+        None => quote! {{
+            let mut __ctx: sunweb::Context = ::std::collections::HashMap::new();
+            for (k, v) in __sunweb_params {
+                __ctx.insert((*k).into(), v.clone());
+            }
+            sunweb::render_response(#template.as_str(), &__ctx)
+        }},
     };
 
     expanded.into()
@@ -466,9 +352,23 @@ pub fn render(input: TokenStream) -> TokenStream {
 
 fn method_route(method: &str, attr: TokenStream, item: TokenStream) -> TokenStream {
     let path = parse_macro_input!(attr as LitStr);
-    let func = parse_macro_input!(item as ItemFn);
+    let mut func = parse_macro_input!(item as ItemFn);
     let fn_name = &func.sig.ident;
     let method_ident = syn::Ident::new(method, proc_macro2::Span::call_site());
+
+    // Inject empty __sunweb_params fallback if #[param] hasn't already done so.
+    let has_params = func
+        .block
+        .stmts
+        .iter()
+        .any(|s| quote!(#s).to_string().contains("__sunweb_params"));
+
+    if !has_params {
+        let fallback: syn::Stmt = syn::parse_quote! {
+            let __sunweb_params: &[(&str, sunweb::Value)] = &[];
+        };
+        func.block.stmts.insert(0, fallback);
+    }
 
     let handler = if func.sig.asyncness.is_some() {
         quote! { |req| ::std::boxed::Box::pin(async {
@@ -479,6 +379,7 @@ fn method_route(method: &str, attr: TokenStream, item: TokenStream) -> TokenStre
             ::std::convert::Into::<sunweb::Response>::into(#fn_name(req))
         })}
     };
+
     TokenStream::from(quote! {
         #func
         sunweb::inventory::submit! {

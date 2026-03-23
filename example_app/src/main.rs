@@ -33,6 +33,15 @@ fn index(_: &HTTPRequest) -> HtmlResponse {
     HtmlResponse::ok(content.as_str())
 }
 
+#[get("/:id")]
+#[param("id", u32)]
+fn param_test(req: &HTTPRequest) -> HtmlResponse {
+    let content = get_file_content(Path::new(
+        "./example_app/resources/templates/param_test.html",
+    ));
+    render!(content)
+}
+
 #[get("/template")]
 fn template(_: &HTTPRequest) -> HtmlResponse {
     let content = get_file_content(Path::new(
@@ -125,7 +134,7 @@ fn not_found(_: &HTTPRequest) -> HtmlResponse {
     HtmlResponse::status("<h1>Not found</h1>", StatusCode::NotFound)
 }
 
-#[error_page(500)]
+#[error_page(501)]
 fn server_error(_: &HTTPRequest) -> HtmlResponse {
     HtmlResponse::status(
         "<h1>Something went wrong</h1>",

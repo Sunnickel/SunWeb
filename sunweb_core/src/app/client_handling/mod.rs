@@ -351,20 +351,37 @@ impl Client {
             return tokio::task::spawn_blocking(move || {
                 get_proxy_response(&prefix, &external, &request_clone)
             })
-            .await
-            .unwrap_or_else(|_| Response::internal_error());
+                .await
+                .unwrap_or_else(|_| Response::internal_error());
         }
 
-        // 3. Exact match on path + method
-        if let Some(route) = domain_routes
+        // 3. Standard routes — exact matches first, then :param patterns
+        let standard_routes: Vec<&Route> = domain_routes
             .iter()
-            .find(|r| r.route_type == RouteType::Standard && r.path == path)
-        {
+            .copied()
+            .filter(|r| r.route_type == RouteType::Standard)
+            .collect();
+
+        let matched = standard_routes
+            .iter()
+            .find(|r| r.path == path)
+            .map(|r| (*r, vec![]))
+            .or_else(|| {
+                standard_routes
+                    .iter()
+                    .find_map(|r| match_path(&r.path, path).map(|params| (*r, params)))
+            });
+
+        if let Some((route, params)) = matched {
             if route.method != *method {
                 return Response::method_not_allowed();
             }
             if let Some(f) = &route.handler {
-                return f(request).await;
+                let mut req_with_params = request.clone();
+                for (key, value) in params {
+                    req_with_params.set_path_param(key.into(), value);
+                }
+                return f(&req_with_params).await;
             }
         }
 
@@ -433,4 +450,27 @@ fn get_proxy_response(prefix: &str, external: &str, request: &HTTPRequest) -> Re
         }
         None => Response::bad_gateway(),
     }
+}
+
+/// Checks whether a route pattern matches a request path, and if so returns
+/// the extracted param values keyed by their name.
+/// e.g. pattern "/:id/posts/:page" against "/42/posts/3" → [("id","42"),("page","3")]
+fn match_path<'a>(pattern: &'a str, path: &'a str) -> Option<Vec<(&'a str, String)>> {
+    let pattern_segs: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+    let path_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+    if pattern_segs.len() != path_segs.len() {
+        return None;
+    }
+
+    let mut params = Vec::new();
+    for (pat, val) in pattern_segs.iter().zip(path_segs.iter()) {
+        if let Some(name) = pat.strip_prefix(':') {
+            params.push((name, val.to_string()));
+        } else if pat != val {
+            return None;
+        }
+    }
+
+    Some(params)
 }
